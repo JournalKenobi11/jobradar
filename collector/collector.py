@@ -94,7 +94,7 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
-    
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             job_id TEXT PRIMARY KEY,
@@ -108,7 +108,7 @@ def init_db():
             first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS skills_daily (
             date DATE,
@@ -118,7 +118,7 @@ def init_db():
             PRIMARY KEY (date, skill)
         )
     """)
-    
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS skills_trend (
             skill TEXT,
@@ -127,7 +127,7 @@ def init_db():
             PRIMARY KEY (skill, date)
         )
     """)
-    
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS word_frequency (
             word TEXT,
@@ -136,11 +136,11 @@ def init_db():
             PRIMARY KEY (word, date)
         )
     """)
-    
+
     cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_posted_date ON jobs(posted_date)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source)")
-    
+
     conn.commit()
     cur.close()
     conn.close()
@@ -149,18 +149,18 @@ def init_db():
 def is_relevant(title, location):
     title_lower = title.lower()
     location_lower = location.lower()
-    
+
     role_match = any(k in title_lower for k in ROLE_KEYWORDS)
     if not role_match:
         return False
-    
+
     location_match = any(k in location_lower for k in LOCATIONS)
     return location_match
 
 def extract_skills_spacy(text):
     if not text or len(text) < 10:
         return []
-    
+
     doc = nlp(text)
     skills = [ent.text for ent in doc.ents if "SKILL" in ent.label_]
     return list(set(skills))
@@ -168,10 +168,10 @@ def extract_skills_spacy(text):
 def save_jobs(jobs):
     if not jobs:
         return
-    
+
     conn = get_db_connection()
     cur = conn.cursor()
-    
+
     saved_count = 0
     for job in jobs:
         try:
@@ -193,7 +193,7 @@ def save_jobs(jobs):
                 saved_count += 1
         except Exception as e:
             log(f"Error saving job: {e}", level="ERROR")
-    
+
     conn.commit()
     cur.close()
     conn.close()
@@ -202,38 +202,38 @@ def save_jobs(jobs):
 def compute_daily_skills():
     conn = get_db_connection()
     cur = conn.cursor()
-    
+
     cur.execute("""
         SELECT job_id, title, description FROM jobs
         WHERE posted_date = CURRENT_DATE
     """)
-    
+
     jobs = cur.fetchall()
-    
+
     if not jobs:
         log("No jobs collected today. Skipping skill computation.")
         cur.close()
         conn.close()
         return
-    
+
     skill_counts = {}
     all_skill_terms = []
-    
+
     for job_id, title, description in jobs:
         text = f"{title} {description if description else ''}"
         skills = extract_skills_spacy(text)
         all_skill_terms.extend(skills)
         for skill in skills:
             skill_counts[skill] = skill_counts.get(skill, 0) + 1
-    
+
     if not skill_counts:
         log("No skills extracted from today's jobs.")
         cur.close()
         conn.close()
         return
-    
+
     sorted_skills = sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)
-    
+
     for rank, (skill, count) in enumerate(sorted_skills[:200], 1):
         cur.execute("""
             INSERT INTO skills_daily (date, skill, count, rank)
@@ -242,7 +242,7 @@ def compute_daily_skills():
                 count = EXCLUDED.count,
                 rank = EXCLUDED.rank
         """, (skill, count, rank))
-    
+
     skill_counter = Counter(all_skill_terms)
     for skill, count in skill_counter.most_common(300):
         cur.execute("""
@@ -251,7 +251,7 @@ def compute_daily_skills():
             ON CONFLICT (word, date) DO UPDATE SET
                 count = EXCLUDED.count
         """, (skill, count))
-    
+
     conn.commit()
     cur.close()
     conn.close()
@@ -260,7 +260,7 @@ def compute_daily_skills():
 def collect_all():
     cycle_start = time.time()
     log_section("Starting Collection Cycle")
-    
+
     # ============================================================
     # YOUR FULL COMPANY LIST - ADDED AS REQUESTED
     # ============================================================
@@ -381,85 +381,108 @@ def collect_all():
             ("SBI", "https://sbi.wd1.myworkdayjobs.com/en-US/External"),
         ]
     }
-    
+
     all_jobs = []
-    greenhouse_start = time.time()
     greenhouse_fetched = 0
     greenhouse_relevant = 0
+    greenhouse_rejected = 0
+
+    greenhouse_start = time.time()
     log(f"[1/3] Greenhouse ({len(companies['greenhouse'])} companies)")
+
     for company_name, company_id in companies['greenhouse']:
+        jobs = collect_greenhouse(company_name, company_id)
+        filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
+        all_jobs.extend(filtered)
+
         fetched = len(jobs)
         relevant = len(filtered)
         rejected = fetched - relevant
+
         greenhouse_fetched += fetched
         greenhouse_relevant += relevant
+        greenhouse_rejected += rejected
 
-        log(
-            f"[GREENHOUSE] "
-            f"{company_name} | "
-            f"Fetched: {fetched} | "
-            f"Relevant: {relevant} | "
-            f"Rejected: {rejected}"
-)
+        log(f"[GREENHOUSE] {company_name}")
+        log(f"    Fetched  : {fetched}")
+        log(f"    Relevant : {relevant}")
+        log(f"    Rejected : {rejected}")
+
     greenhouse_time = time.time() - greenhouse_start
 
-    log(
-    f"[GREENHOUSE] Completed | "
-    f"Companies: {len(companies['greenhouse'])} | "
-    f"Time: {greenhouse_time:.2f}s"
-)
-    lever_start = time.time()
+    log_section("GREENHOUSE SUMMARY")
+    log(f"Companies : {len(companies['greenhouse'])}")
+    log(f"Fetched   : {greenhouse_fetched}")
+    log(f"Relevant  : {greenhouse_relevant}")
+    log(f"Rejected  : {greenhouse_rejected}")
+    log(f"Time      : {greenhouse_time:.2f} sec")
     lever_fetched = 0
     lever_relevant = 0
-    log(f"  [2/3] Lever: {len(companies['lever'])} companies")
+    lever_rejected = 0
+
+    lever_start = time.time()
+    log(f"[2/3] Lever ({len(companies['lever'])} companies)")
+
     for company_name, company_id in companies['lever']:
+        jobs = collect_lever(company_name, company_id)
+        filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
+        all_jobs.extend(filtered)
+
         fetched = len(jobs)
         relevant = len(filtered)
         rejected = fetched - relevant
+
         lever_fetched += fetched
         lever_relevant += relevant
+        lever_rejected += rejected
 
-        log(
-            f"[LEVER] "
-            f"{company_name} | "
-            f"Fetched: {fetched} | "
-            f"Relevant: {relevant} | "
-            f"Rejected: {rejected}"
-            )
+        log(f"[LEVER] {company_name}")
+        log(f"    Fetched  : {fetched}")
+        log(f"    Relevant : {relevant}")
+        log(f"    Rejected : {rejected}")
 
     lever_time = time.time() - lever_start
 
-    log(
-    f"[LEVER] Completed | "
-    f"Companies: {len(companies['lever'])} | "
-    f"Time: {lever_time:.2f}s"
-     )
-    
-    workday_start = time.time()
+    log_section("LEVER SUMMARY")
+    log(f"Companies : {len(companies['lever'])}")
+    log(f"Fetched   : {lever_fetched}")
+    log(f"Relevant  : {lever_relevant}")
+    log(f"Rejected  : {lever_rejected}")
+    log(f"Time      : {lever_time:.2f} sec")
+
     workday_fetched = 0
     workday_relevant = 0
-    log(f"  [3/3] Workday: {len(companies['workday'])} companies")
+    workday_rejected = 0
+
+    workday_start = time.time()
+    log(f"[3/3] Workday ({len(companies['workday'])} companies)")
+
     for company_name, company_url in companies['workday']:
+        jobs = collect_workday(company_name, company_url)
+        filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
+        all_jobs.extend(filtered)
+
         fetched = len(jobs)
         relevant = len(filtered)
         rejected = fetched - relevant
+
         workday_fetched += fetched
         workday_relevant += relevant
+        workday_rejected += rejected
 
-        log(
-            f"[WORKDAY] "
-            f"{company_name} | "
-            f"Fetched: {fetched} | "
-            f"Relevant: {relevant} | "
-            f"Rejected: {rejected}"
-          )
+        log(f"[WORKDAY] {company_name}")
+        log(f"    Fetched  : {fetched}")
+        log(f"    Relevant : {relevant}")
+        log(f"    Rejected : {rejected}")
+
     workday_time = time.time() - workday_start
 
-    log(
-    f"[WORKDAY] Completed | "
-    f"Companies: {len(companies['workday'])} | "
-    f"Time: {workday_time:.2f}s"
-     )
+    log_section("WORKDAY SUMMARY")
+    log(f"Companies : {len(companies['workday'])}")
+    log(f"Fetched   : {workday_fetched}")
+    log(f"Relevant  : {workday_relevant}")
+    log(f"Rejected  : {workday_rejected}")
+    log(f"Time      : {workday_time:.2f} sec")
 
     if all_jobs:
         save_jobs(all_jobs)
@@ -467,7 +490,7 @@ def collect_all():
         log(f"  Total new jobs: {len(all_jobs)}")
     else:
         log("  No new jobs found in this cycle")
-    
+
     log_section("Collection Cycle Complete")
 
 if __name__ == "__main__":
@@ -476,16 +499,16 @@ if __name__ == "__main__":
     log("Sources : Greenhouse, Lever, Workday")
     log("Skill Extractor : amjad-awad/skill-extractor")
     log(f"Database : {DB_HOST}:{DB_PORT}/{DB_NAME}")
-    
+
     init_db()
     collect_all()
-    
+
     log("Scheduler started (every 6 hours)")
     scheduler = BlockingScheduler()
     scheduler.add_job(collect_all, 'interval', hours=6)
-    
+
     try:
         scheduler.start()
     except KeyboardInterrupt:
         log("Collector stopped", "INFO")
-        sys.exit(0)
+        sys.exit(0)(base) 
