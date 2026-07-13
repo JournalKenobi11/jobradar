@@ -2,5 +2,6 @@ requests==2.31.0
 psycopg2-binary==2.9.9
 apscheduler==3.10.4
 beautifulsoup4==4.12.2
+spacy==3.8.7
 huggingface-hub==0.24.7
 numpy==1.26.4

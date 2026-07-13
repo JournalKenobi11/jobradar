@@ -4,6 +4,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import os
 import time
 import sys
+from huggingface_hub import snapshot_download
 import spacy
 from collections import Counter
 
@@ -20,9 +21,21 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', 'jobradar123')
 # ============================================================
 # LOAD SKILL EXTRACTION MODEL
 # ============================================================
-print("Loading skill extraction model...")
-nlp = spacy.load("skill-extractor")
-print("Skill extraction model loaded successfully.\n")
+
+print("Downloading skill extraction model...")
+
+model_path = snapshot_download(
+    repo_id="amjad-awad/skill-extractor",
+    repo_type="model"
+)
+
+print(f"Model path: {model_path}")
+
+print("Loading model...")
+
+nlp = spacy.load(model_path)
+
+print("Model loaded successfully.\n")
 
 ROLE_KEYWORDS = [
     'data scientist', 'data analyst', 'ml engineer',
