@@ -3,65 +3,55 @@ from datetime import datetime
 import re
 
 def collect_workday_public(company_name, company_url):
-    """
-    Fetch jobs from public Workday career site using the CXS JSON API.
-    No authentication required. Works with any public Workday career page.
-    
-    Args:
-        company_name: Display name (e.g., "NVIDIA")
-        company_url: Public career site URL
-                    Example: https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite
-    
-    Returns:
-        List of job dictionaries
-    """
     try:
-        # Clean the URL
         company_url = company_url.rstrip('/')
         
-        # Construct the public API URL
-        # Workday uses: {base_url}/jobs as the public JSON endpoint
-        api_url = f"{company_url}/jobs"
+        match = re.search(r'https://([^.]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[^/]+)/([^/]+)', company_url)
+        if not match:
+            print(f"  [Workday] {company_name}: Could not parse URL")
+            return []
         
-        print(f"  [Workday] Fetching {company_name} from: {api_url}")
+        tenant = match.group(1)
+        instance = match.group(2)
+        site = match.group(3)
         
-        # Headers that work with Workday's public API
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin'
+        api_url = f"https://{tenant}.{instance}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs"
+        
+        payload = {
+            "limit": 50,
+            "offset": 0,
+            "searchText": ""
         }
         
-        response = requests.get(api_url, headers=headers, timeout=15)
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.post(
+            api_url,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
         
         if response.status_code != 200:
             print(f"  [Workday] {company_name}: HTTP {response.status_code}")
             return []
         
         data = response.json()
-        
-        # Workday response structure variations
-        # Some tenants use 'jobPostings', others use 'items'
-        job_list = data.get('jobPostings', data.get('items', data.get('jobs', [])))
+        job_list = data.get('jobPostings', data.get('items', []))
         
         if not job_list:
-            print(f"  [Workday] {company_name}: No jobs found in response")
+            print(f"  [Workday] {company_name}: No jobs found")
             return []
         
         jobs = []
-        
         for job in job_list:
-            # Extract title
             title = job.get('title', job.get('jobTitle', ''))
             if not title:
                 continue
             
-            # Extract location
             location = ''
             if 'location' in job:
                 location = job.get('location', '')
@@ -75,18 +65,15 @@ def collect_workday_public(company_name, company_url):
             if not location:
                 location = 'India'
             
-            # Extract job URL
             job_url = job.get('jobUrl', job.get('url', ''))
             if not job_url and job.get('id'):
                 job_url = f"{company_url}/job/{job.get('id')}"
             
-            # Extract description
             description = job.get('description', job.get('jobDescription', ''))
             if isinstance(description, dict):
                 description = description.get('text', '')
             
-            # Extract job ID
-            job_id = job.get('id', job.get('requisitionId', job.get('jobId', '')))
+            job_id = job.get('id', job.get('requisitionId', ''))
             if not job_id:
                 job_id = f"{company_name}_{title.replace(' ', '_')}"
             
@@ -104,58 +91,6 @@ def collect_workday_public(company_name, company_url):
         print(f"  [Workday] {company_name}: Found {len(jobs)} jobs")
         return jobs
         
-    except requests.exceptions.Timeout:
-        print(f"  [Workday] Timeout fetching {company_name}")
-        return []
-    except requests.exceptions.JSONDecodeError:
-        print(f"  [Workday] {company_name}: Invalid JSON response")
-        return []
     except Exception as e:
         print(f"  [Workday] Error fetching {company_name}: {e}")
-        return []
-
-
-def collect_workday_with_search(company_name, company_url, keyword=""):
-    """
-    Fetch Workday jobs with search filter.
-    Useful for narrowing down by title/role.
-    """
-    try:
-        company_url = company_url.rstrip('/')
-        
-        # Add search parameter if provided
-        if keyword:
-            api_url = f"{company_url}/jobs?q={keyword}"
-        else:
-            api_url = f"{company_url}/jobs"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json'
-        }
-        
-        response = requests.get(api_url, headers=headers, timeout=15)
-        
-        if response.status_code != 200:
-            return []
-        
-        data = response.json()
-        job_list = data.get('jobPostings', data.get('items', data.get('jobs', [])))
-        
-        jobs = []
-        for job in job_list:
-            jobs.append({
-                'job_id': f"workday_{company_name}_{job.get('id', '')}",
-                'company': company_name,
-                'title': job.get('title', ''),
-                'location': job.get('location', 'India'),
-                'description': job.get('description', ''),
-                'url': job.get('jobUrl', ''),
-                'source': 'workday',
-                'posted_date': datetime.now().date()
-            })
-        
-        return jobs
-    except Exception as e:
-        print(f"  [Workday] Search error for {company_name}: {e}")
         return []

@@ -4,9 +4,9 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import os
 import time
 import sys
+from huggingface_hub import snapshot_download
 import spacy
 from collections import Counter
-import re
 
 from greenhouse import collect_greenhouse
 from lever import collect_lever
@@ -18,9 +18,13 @@ DB_NAME = os.getenv('DB_NAME', 'jobradar_db')
 DB_USER = os.getenv('DB_USER', 'jobradar')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'jobradar123')
 
-# Load spaCy model (will be installed in Dockerfile)
-# Using the small model for speed, or the large model for better accuracy
-nlp = spacy.load("en_core_web_sm")
+# ============================================================
+# LOAD SKILL EXTRACTION MODEL (amjad-awad/skill-extractor)
+# ============================================================
+print("Loading skill extraction model from Hugging Face...")
+model_path = snapshot_download("amjad-awad/skill-extractor", repo_type="model")
+nlp = spacy.load(model_path)
+print("Skill extraction model loaded successfully.\n")
 
 # ============================================================
 # ROLE & LOCATION FILTERING
@@ -111,7 +115,6 @@ def init_db():
     print("  Database initialized")
 
 def is_relevant(title, location):
-    """Check if job matches your target roles + locations."""
     title_lower = title.lower()
     location_lower = location.lower()
     
@@ -124,103 +127,19 @@ def is_relevant(title, location):
 
 def extract_skills_spacy(text):
     """
-    Extract skills from text using spaCy NLP.
-    Returns ALL skills found, not just one.
+    Extract skills dynamically using the pre-trained NER model.
+    This returns ALL skills found in the text (multiple per job).
     """
     if not text or len(text) < 10:
         return []
     
-    # Process the text with spaCy
-    doc = nlp(text.lower())
+    doc = nlp(text)
     
-    skills = set()
+    # Extract all entities labeled as SKILLS
+    skills = [ent.text for ent in doc.ents if "SKILLS" in ent.label_]
     
-    # 1. Extract noun chunks (phrases like "machine learning", "data science")
-    for chunk in doc.noun_chunks:
-        chunk_text = chunk.text.strip()
-        # Keep chunks between 2 and 40 characters
-        if 2 < len(chunk_text) < 40:
-            # Must contain at least one noun or proper noun
-            if any(token.pos_ in {"NOUN", "PROPN"} for token in chunk):
-                skills.add(chunk_text)
-    
-    # 2. Extract individual nouns and proper nouns
-    for token in doc:
-        if token.pos_ in {"NOUN", "PROPN"}:
-            if 2 < len(token.text) < 20 and not token.is_stop:
-                skills.add(token.text)
-    
-    # 3. Extract 2-word compounds
-    for i in range(len(doc) - 1):
-        token1 = doc[i]
-        token2 = doc[i + 1]
-        if token1.pos_ in {"NOUN", "PROPN"} and token2.pos_ in {"NOUN", "PROPN"}:
-            phrase = f"{token1.text} {token2.text}"
-            if 4 < len(phrase) < 30:
-                skills.add(phrase)
-        
-        # 3-word compounds
-        if i < len(doc) - 2:
-            token3 = doc[i + 2]
-            if (token1.pos_ in {"NOUN", "PROPN"} and 
-                token2.pos_ in {"NOUN", "PROPN"} and 
-                token3.pos_ in {"NOUN", "PROPN"}):
-                phrase = f"{token1.text} {token2.text} {token3.text}"
-                if 6 < len(phrase) < 40:
-                    skills.add(phrase)
-    
-    # 4. Extract common technical skills (hardcoded fallback)
-    technical_skills = [
-        'python', 'sql', 'java', 'c++', 'javascript', 'typescript',
-        'react', 'angular', 'vue', 'node.js', 'express', 'django',
-        'flask', 'spring', 'docker', 'kubernetes', 'aws', 'azure',
-        'gcp', 'linux', 'git', 'jenkins', 'ci/cd', 'terraform',
-        'ansible', 'puppet', 'chef', 'nginx', 'apache', 'mysql',
-        'postgresql', 'mongodb', 'redis', 'elasticsearch', 'kafka',
-        'spark', 'hadoop', 'airflow', 'databricks', 'snowflake',
-        'pandas', 'numpy', 'scikit-learn', 'tensorflow', 'pytorch',
-        'keras', 'machine learning', 'deep learning', 'nlp', 'computer vision',
-        'llm', 'rag', 'langchain', 'fine-tuning', 'mlflow',
-        'data science', 'data engineering', 'etl', 'data pipeline',
-        'mlops', 'fastapi', 'streamlit', 'gradio', 'pytest'
-    ]
-    
-    for skill in technical_skills:
-        if skill in text.lower():
-            skills.add(skill)
-    
-    # 5. Remove common non-skills
-    common_words = {
-        'experience', 'degree', 'bachelor', 'master', 'phd', 'science',
-        'technology', 'engineering', 'mathematics', 'statistics', 'computer',
-        'software', 'hardware', 'system', 'design', 'development',
-        'analysis', 'research', 'team', 'work', 'project', 'role', 'position',
-        'senior', 'junior', 'lead', 'manager', 'director', 'head', 'principal',
-        'staff', 'expert', 'analyst', 'architect', 'developer', 'engineer',
-        'scientist', 'researcher', 'consultant', 'specialist', 'solutions',
-        'platform', 'infrastructure', 'architecture', 'framework', 'library',
-        'tool', 'tools', 'technologies', 'services', 'service',
-        'cloud', 'server', 'client', 'database', 'analytics', 'insights',
-        'business', 'product', 'strategy', 'operations', 'support', 'maintenance',
-        'performance', 'security', 'compliance', 'quality', 'testing',
-        'deployment', 'production', 'environment', 'agile', 'scrum',
-        'monitoring', 'logging', 'alerting', 'dashboard', 'reporting', 'visualization',
-        'communication', 'management', 'leadership', 'teamwork', 'collaboration',
-        'problem', 'solving', 'critical', 'thinking', 'analytical', 'attention',
-        'detail', 'organization', 'planning', 'prioritization', 'time', 'flexibility',
-        'adaptability', 'creativity', 'innovation', 'initiative', 'self', 'motivated',
-        'interpersonal', 'presentation', 'negotiation', 'persuasion', 'influence'
-    }
-    
-    # Remove common words
-    filtered_skills = set()
-    for skill in skills:
-        skill_lower = skill.lower()
-        if skill_lower not in common_words:
-            filtered_skills.add(skill)
-    
-    # Convert to list and return
-    return list(filtered_skills)
+    # Remove duplicates and return
+    return list(set(skills))
 
 def save_jobs(jobs):
     if not jobs:
@@ -257,13 +176,9 @@ def save_jobs(jobs):
     print(f"  Saved {saved_count} new jobs")
 
 def compute_daily_skills():
-    """
-    Compute skill rankings for today using spaCy NLP.
-    """
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Get today's jobs
     cur.execute("""
         SELECT job_id, title, description FROM jobs
         WHERE posted_date = CURRENT_DATE
@@ -277,7 +192,6 @@ def compute_daily_skills():
         conn.close()
         return
     
-    # Extract skills from all jobs
     skill_counts = {}
     all_skill_terms = []
     
@@ -294,10 +208,8 @@ def compute_daily_skills():
         conn.close()
         return
     
-    # Sort by frequency
     sorted_skills = sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)
     
-    # Save top 200 skills to skills_daily
     for rank, (skill, count) in enumerate(sorted_skills[:200], 1):
         cur.execute("""
             INSERT INTO skills_daily (date, skill, count, rank)
@@ -307,7 +219,6 @@ def compute_daily_skills():
                 rank = EXCLUDED.rank
         """, (skill, count, rank))
     
-    # Save word frequency for trend analysis
     skill_counter = Counter(all_skill_terms)
     for skill, count in skill_counter.most_common(300):
         cur.execute("""
@@ -329,10 +240,26 @@ def collect_all():
         'greenhouse': [
             ("Razorpay", "razorpay"),
             ("Postman", "postman"),
-            ("Fractal Analytics", "fractal-analytics"),
-            ("Quantiphi", "quantiphi"),
-            ("Tiger Analytics", "tiger-analytics"),
-            ("ZS Associates", "zs-associates"),
+            ("CRED", "cred"),
+            ("Meesho", "meesho"),
+            ("Swiggy", "swiggy"),
+            ("PhonePe", "phonepe"),
+            ("Flipkart", "flipkart"),
+            ("Zomato", "zomato"),
+            ("Ola", "ola"),
+            ("Dream11", "dream11"),
+            ("Stripe", "stripe"),
+            ("Slack", "slack"),
+            ("Shopify", "shopify"),
+            ("Dropbox", "dropbox"),
+            ("Pinterest", "pinterest"),
+            ("Airbnb", "airbnb"),
+            ("Uber", "uber"),
+            ("Lyft", "lyft"),
+            ("Reddit", "reddit"),
+            ("Coinbase", "coinbase"),
+            ("Robinhood", "robinhood"),
+            ("Palantir", "palantir"),
         ],
         'lever': [
             ("Zerodha", "zerodha"),
@@ -340,22 +267,68 @@ def collect_all():
             ("CRED", "cred"),
             ("Meesho", "meesho"),
             ("Swiggy", "swiggy"),
+            ("PhonePe", "phonepe"),
+            ("Flipkart", "flipkart"),
+            ("Zomato", "zomato"),
+            ("Ola", "ola"),
+            ("Paytm", "paytm"),
+            ("Netflix", "netflix"),
+            ("Spotify", "spotify"),
+            ("Uber", "uber"),
+            ("Lyft", "lyft"),
+            ("Slack", "slack"),
+            ("Shopify", "shopify"),
+            ("Mozilla", "mozilla"),
+            ("GitHub", "github"),
+            ("GitLab", "gitlab"),
+            ("Figma", "figma"),
+            ("Vercel", "vercel"),
+            ("Cloudflare", "cloudflare"),
         ],
         'workday': [
             ("NVIDIA", "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite"),
             ("Microsoft", "https://microsoft.wd1.myworkdayjobs.com/en-US/MSFTJobs"),
             ("Amazon", "https://amazon.wd1.myworkdayjobs.com/en-US/External"),
-            ("JPMorgan Chase", "https://jpmchase.wd1.myworkdayjobs.com/en-US/External"),
-            ("Morgan Stanley", "https://morganstanley.wd1.myworkdayjobs.com/en-US/External"),
-            ("Goldman Sachs", "https://goldmansachs.wd1.myworkdayjobs.com/en-US/External"),
-            ("Barclays", "https://barclays.wd1.myworkdayjobs.com/en-US/External"),
+            ("Google", "https://google.wd1.myworkdayjobs.com/en-US/GoogleExternal"),
+            ("Apple", "https://apple.wd1.myworkdayjobs.com/en-US/External"),
+            ("Meta", "https://meta.wd1.myworkdayjobs.com/en-US/MetaExternal"),
+            ("AMD", "https://amd.wd1.myworkdayjobs.com/en-US/External"),
+            ("Intel", "https://intel.wd1.myworkdayjobs.com/en-US/External"),
+            ("Oracle", "https://oracle.wd1.myworkdayjobs.com/en-US/External"),
+            ("Salesforce", "https://salesforce.wd1.myworkdayjobs.com/en-US/External_Career_Site"),
             ("TCS", "https://tcs.wd3.myworkdayjobs.com/en-US/TCS_Careers"),
             ("Infosys", "https://infosys.wd1.myworkdayjobs.com/en-US/External"),
+            ("Wipro", "https://wipro.wd1.myworkdayjobs.com/en-US/External"),
             ("Accenture", "https://accenture.wd1.myworkdayjobs.com/en-US/AccentureCareers"),
+            ("Capgemini", "https://capgemini.wd1.myworkdayjobs.com/en-US/External"),
+            ("Cognizant", "https://cognizant.wd1.myworkdayjobs.com/en-US/External"),
+            ("IBM", "https://ibm.wd1.myworkdayjobs.com/en-US/External"),
             ("Deloitte", "https://deloitte.wd1.myworkdayjobs.com/en-US/Deloitte"),
             ("PwC", "https://pwc.wd1.myworkdayjobs.com/en-US/External"),
             ("EY", "https://ey.wd1.myworkdayjobs.com/en-US/Careers"),
             ("KPMG", "https://kpmg.wd1.myworkdayjobs.com/en-US/External"),
+            ("JPMorgan Chase", "https://jpmchase.wd1.myworkdayjobs.com/en-US/External"),
+            ("Morgan Stanley", "https://morganstanley.wd1.myworkdayjobs.com/en-US/External"),
+            ("Goldman Sachs", "https://goldmansachs.wd1.myworkdayjobs.com/en-US/External"),
+            ("Barclays", "https://barclays.wd1.myworkdayjobs.com/en-US/External"),
+            ("Deutsche Bank", "https://db.wd1.myworkdayjobs.com/en-US/External"),
+            ("HSBC", "https://hsbc.wd1.myworkdayjobs.com/en-US/External"),
+            ("Citigroup", "https://citi.wd1.myworkdayjobs.com/en-US/External"),
+            ("Bank of America", "https://bankofamerica.wd1.myworkdayjobs.com/en-US/External"),
+            ("Wells Fargo", "https://wellsfargo.wd1.myworkdayjobs.com/en-US/External"),
+            ("Mastercard", "https://mastercard.wd1.myworkdayjobs.com/en-US/External"),
+            ("Visa", "https://visa.wd1.myworkdayjobs.com/en-US/External"),
+            ("Credit Suisse", "https://creditsuisse.wd1.myworkdayjobs.com/en-US/External"),
+            ("UBS", "https://ubs.wd1.myworkdayjobs.com/en-US/External"),
+            ("BNP Paribas", "https://bnpparibas.wd1.myworkdayjobs.com/en-US/External"),
+            ("Societe Generale", "https://societegenerale.wd1.myworkdayjobs.com/en-US/External"),
+            ("Nomura", "https://nomura.wd1.myworkdayjobs.com/en-US/External"),
+            ("Mitsubishi UFJ", "https://mufg.wd1.myworkdayjobs.com/en-US/External"),
+            ("Jane Street", "https://janestreet.wd1.myworkdayjobs.com/en-US/External"),
+            ("Optiver", "https://optiver.wd1.myworkdayjobs.com/en-US/External"),
+            ("Susquehanna", "https://sig.wd1.myworkdayjobs.com/en-US/External"),
+            ("Jump Trading", "https://jumptrading.wd1.myworkdayjobs.com/en-US/External"),
+            ("Citadel", "https://citadel.wd1.myworkdayjobs.com/en-US/External"),
         ]
     }
     
@@ -394,7 +367,7 @@ def collect_all():
 if __name__ == "__main__":
     print("Job Radar Collector Starting...")
     print("  Sources: Greenhouse, Lever, Workday")
-    print("  Skills: DYNAMICALLY EXTRACTED using spaCy NLP\n")
+    print("  Skills: DYNAMICALLY EXTRACTED using amjad-awad/skill-extractor\n")
     
     init_db()
     collect_all()

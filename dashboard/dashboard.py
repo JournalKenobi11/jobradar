@@ -30,7 +30,8 @@ st.sidebar.markdown("• Lever")
 st.sidebar.markdown("• Workday")
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Skills")
-st.sidebar.markdown("**Dynamically Extracted via spaCy NLP**")
+st.sidebar.markdown("**Dynamically Extracted via**")
+st.sidebar.markdown("`amjad-awad/skill-extractor`")
 st.sidebar.markdown("No hardcoded skill lists.")
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"*Updated: {datetime.now().strftime('%H:%M')}*")
@@ -61,7 +62,6 @@ if view == "📊 Overview":
     col3.metric("Companies", total_companies)
     col4.metric("Sources", total_sources)
     
-    # Source distribution
     st.subheader("📊 Jobs by Source")
     cur.execute("""
         SELECT source, COUNT(*) as count
@@ -75,8 +75,7 @@ if view == "📊 Overview":
         fig = px.pie(df, values="Count", names="Source", title="Jobs by ATS")
         st.plotly_chart(fig, use_container_width=True)
     
-    # Top skills today
-    st.subheader("🏆 Top Skills Today (Dynamically Extracted)")
+    st.subheader("🏆 Top Skills Today")
     cur.execute("""
         SELECT skill, count FROM skills_daily
         WHERE date = CURRENT_DATE
@@ -93,7 +92,6 @@ if view == "📊 Overview":
     else:
         st.info("No skills data yet. Run the collector first.")
     
-    # Recent jobs
     st.subheader("🆕 Latest Jobs")
     cur.execute("""
         SELECT company, title, location, source, posted_date, url
@@ -129,12 +127,12 @@ elif view == "📈 Skills":
         """)
     else:
         cur.execute("""
-    SELECT skill, SUM(count) as total
-    FROM skills_daily
-    WHERE date >= CURRENT_DATE - INTERVAL '7 days'
-    GROUP BY skill
-    ORDER BY total DESC LIMIT 20
-""")
+            SELECT skill, SUM(count) as total
+            FROM skills_daily
+            WHERE date >= CURRENT_DATE - INTERVAL '30 days'
+            GROUP BY skill
+            ORDER BY total DESC LIMIT 20
+        """)
     
     skills = cur.fetchall()
     

@@ -2,8 +2,7 @@ version: '3.8'
 
 services:
   collector:
-    build:
-      context: ./collector
+    image: job-collector:latest
     container_name: job_collector
     restart: always
     environment:
@@ -15,11 +14,10 @@ services:
     volumes:
       - ./data:/app/data
     networks:
-      - homelab   # <-- ADD THIS
+      - homelab
 
   dashboard:
-    build:
-      context: ./dashboard
+    image: job-dashboard:latest
     container_name: job_dashboard
     restart: always
     ports:
@@ -31,7 +29,7 @@ services:
       DB_USER: jobradar
       DB_PASSWORD: jobradar123
     networks:
-      - homelab   # <-- ADD THIS
+      - homelab
 
 networks:
   homelab:
