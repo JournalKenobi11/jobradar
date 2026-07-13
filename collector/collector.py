@@ -258,6 +258,7 @@ def compute_daily_skills():
     log(f"Computed {len(sorted_skills)} unique skills")
 
 def collect_all():
+    cycle_start = time.time()
     log_section("Starting Collection Cycle")
     
     # ============================================================
@@ -382,21 +383,38 @@ def collect_all():
     }
     
     all_jobs = []
-    
+    greenhouse_start = time.time()
     log(f"[1/3] Greenhouse ({len(companies['greenhouse'])} companies)")
     for company_name, company_id in companies['greenhouse']:
         jobs = collect_greenhouse(company_name, company_id)
         filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
         all_jobs.extend(filtered)
+
         log(f"    {company_name}: {len(filtered)} relevant")
-    
+    greenhouse_time = time.time() - greenhouse_start
+
+    log(
+    f"[GREENHOUSE] Completed | "
+    f"Companies: {len(companies['greenhouse'])} | "
+    f"Time: {greenhouse_time:.2f}s"
+)
+    lever_start = time.time()
     log(f"  [2/3] Lever: {len(companies['lever'])} companies")
     for company_name, company_id in companies['lever']:
         jobs = collect_lever(company_name, company_id)
         filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
         all_jobs.extend(filtered)
         log(f"    {company_name}: {len(filtered)} relevant")
+
+    lever_time = time.time() - lever_start
+
+    log(
+    f"[LEVER] Completed | "
+    f"Companies: {len(companies['lever'])} | "
+    f"Time: {lever_time:.2f}s"
+     )
     
+    workday_start = time.time()
     log(f"  [3/3] Workday: {len(companies['workday'])} companies")
     for company_name, company_url in companies['workday']:
         jobs = collect_workday(company_name, company_url)
@@ -404,6 +422,14 @@ def collect_all():
         all_jobs.extend(filtered)
         log(f"    {company_name}: {len(filtered)} relevant")
     
+    workday_time = time.time() - workday_start
+
+    log(
+    f"[WORKDAY] Completed | "
+    f"Companies: {len(companies['workday'])} | "
+    f"Time: {workday_time:.2f}s"
+     )
+
     if all_jobs:
         save_jobs(all_jobs)
         compute_daily_skills()
