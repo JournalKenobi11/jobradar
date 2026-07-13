@@ -4,7 +4,6 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import os
 import time
 import sys
-from huggingface_hub import snapshot_download
 import spacy
 from collections import Counter
 
@@ -19,16 +18,12 @@ DB_USER = os.getenv('DB_USER', 'jobradar')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'jobradar123')
 
 # ============================================================
-# LOAD SKILL EXTRACTION MODEL (amjad-awad/skill-extractor)
+# LOAD SKILL EXTRACTION MODEL
 # ============================================================
-print("Loading skill extraction model from Hugging Face...")
-model_path = snapshot_download("amjad-awad/skill-extractor", repo_type="model")
-nlp = spacy.load(model_path)
+print("Loading skill extraction model...")
+nlp = spacy.load("skill-extractor")
 print("Skill extraction model loaded successfully.\n")
 
-# ============================================================
-# ROLE & LOCATION FILTERING
-# ============================================================
 ROLE_KEYWORDS = [
     'data scientist', 'data analyst', 'ml engineer',
     'machine learning engineer', 'data engineer', 'ai engineer',
@@ -126,19 +121,11 @@ def is_relevant(title, location):
     return location_match
 
 def extract_skills_spacy(text):
-    """
-    Extract skills dynamically using the pre-trained NER model.
-    This returns ALL skills found in the text (multiple per job).
-    """
     if not text or len(text) < 10:
         return []
     
     doc = nlp(text)
-    
-    # Extract all entities labeled as SKILLS
-    skills = [ent.text for ent in doc.ents if "SKILLS" in ent.label_]
-    
-    # Remove duplicates and return
+    skills = [ent.text for ent in doc.ents if "SKILL" in ent.label_]
     return list(set(skills))
 
 def save_jobs(jobs):
@@ -231,11 +218,14 @@ def compute_daily_skills():
     conn.commit()
     cur.close()
     conn.close()
-    print(f"  Computed {len(sorted_skills)} skills dynamically via NLP")
+    print(f"  Computed {len(sorted_skills)} skills")
 
 def collect_all():
     print(f"\n[{datetime.now()}] ===== Starting Collection =====")
     
+    # ============================================================
+    # YOUR FULL COMPANY LIST - ADDED AS REQUESTED
+    # ============================================================
     companies = {
         'greenhouse': [
             ("Razorpay", "razorpay"),
@@ -243,11 +233,22 @@ def collect_all():
             ("CRED", "cred"),
             ("Meesho", "meesho"),
             ("Swiggy", "swiggy"),
+            ("Zepto", "zepto"),
+            ("Groww", "groww"),
             ("PhonePe", "phonepe"),
             ("Flipkart", "flipkart"),
+            ("Paytm", "paytm"),
             ("Zomato", "zomato"),
             ("Ola", "ola"),
             ("Dream11", "dream11"),
+            ("Fractal Analytics", "fractal-analytics"),
+            ("Quantiphi", "quantiphi"),
+            ("Tiger Analytics", "tiger-analytics"),
+            ("ZS Associates", "zs-associates"),
+            ("Mu Sigma", "mu-sigma"),
+            ("LatentView Analytics", "latentview"),
+            ("NielsenIQ", "nielseniq"),
+            ("Course5 Intelligence", "course5"),
             ("Stripe", "stripe"),
             ("Slack", "slack"),
             ("Shopify", "shopify"),
@@ -267,11 +268,13 @@ def collect_all():
             ("CRED", "cred"),
             ("Meesho", "meesho"),
             ("Swiggy", "swiggy"),
+            ("Zepto", "zepto"),
+            ("Razorpay", "razorpay"),
             ("PhonePe", "phonepe"),
-            ("Flipkart", "flipkart"),
             ("Zomato", "zomato"),
             ("Ola", "ola"),
             ("Paytm", "paytm"),
+            ("Flipkart", "flipkart"),
             ("Netflix", "netflix"),
             ("Spotify", "spotify"),
             ("Uber", "uber"),
@@ -284,6 +287,11 @@ def collect_all():
             ("Figma", "figma"),
             ("Vercel", "vercel"),
             ("Cloudflare", "cloudflare"),
+            ("Weights & Biases", "wandb"),
+            ("Hugging Face", "huggingface"),
+            ("Modal Labs", "modal"),
+            ("Replicate", "replicate"),
+            ("Cerebras", "cerebras"),
         ],
         'workday': [
             ("NVIDIA", "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite"),
@@ -329,6 +337,10 @@ def collect_all():
             ("Susquehanna", "https://sig.wd1.myworkdayjobs.com/en-US/External"),
             ("Jump Trading", "https://jumptrading.wd1.myworkdayjobs.com/en-US/External"),
             ("Citadel", "https://citadel.wd1.myworkdayjobs.com/en-US/External"),
+            ("HDFC Bank", "https://hdfcbank.wd1.myworkdayjobs.com/en-US/External"),
+            ("ICICI Bank", "https://icici.wd1.myworkdayjobs.com/en-US/External"),
+            ("Axis Bank", "https://axisbank.wd1.myworkdayjobs.com/en-US/External"),
+            ("SBI", "https://sbi.wd1.myworkdayjobs.com/en-US/External"),
         ]
     }
     
