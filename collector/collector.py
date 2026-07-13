@@ -12,6 +12,22 @@ from greenhouse import collect_greenhouse
 from lever import collect_lever
 from workday import collect_workday_public as collect_workday
 
+
+# ============================================================
+# LOGGING HELPERS
+# ============================================================
+
+def log(message="", level="INFO"):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}", flush=True)
+
+
+def log_section(title):
+    print("\n" + "=" * 70, flush=True)
+    log(title)
+    print("=" * 70, flush=True)
+
+
 DB_HOST = os.getenv('DB_HOST', 'postgres')
 DB_PORT = os.getenv('DB_PORT', '5432')
 DB_NAME = os.getenv('DB_NAME', 'jobradar_db')
@@ -22,20 +38,24 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', 'jobradar123')
 # LOAD SKILL EXTRACTION MODEL
 # ============================================================
 
-print("Downloading skill extraction model...")
+log_section("Loading Skill Extraction Model")
+
+start = time.time()
+
+log("Downloading model from Hugging Face cache/server...")
 
 model_path = snapshot_download(
     repo_id="amjad-awad/skill-extractor",
     repo_type="model"
 )
 
-print(f"Model path: {model_path}")
+log(f"Model path: {model_path}")
 
-print("Loading model...")
+log("Loading spaCy pipeline...")
 
 nlp = spacy.load(model_path)
 
-print("Model loaded successfully.\n")
+log(f"Model loaded successfully ({time.time() - start:.2f} sec)")
 
 ROLE_KEYWORDS = [
     'data scientist', 'data analyst', 'ml engineer',
@@ -47,7 +67,7 @@ ROLE_KEYWORDS = [
 
 LOCATIONS = [
     'mumbai', 'pune', 'bangalore', 'hyderabad', 'chennai',
-    'delhi', 'gurgaon', 'noida', 'india', 'remote', 'hybrid'
+    'delhi', 'gurgaon', 'noida', 'india', 'hybrid'
 ]
 
 def get_db_connection():
@@ -120,7 +140,7 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
-    print("  Database initialized")
+    log("Database initialized successfully")
 
 def is_relevant(title, location):
     title_lower = title.lower()
@@ -234,7 +254,7 @@ def compute_daily_skills():
     print(f"  Computed {len(sorted_skills)} skills")
 
 def collect_all():
-    print(f"\n[{datetime.now()}] ===== Starting Collection =====")
+    log_section("Starting Collection Cycle")
     
     # ============================================================
     # YOUR FULL COMPANY LIST - ADDED AS REQUESTED
@@ -387,22 +407,24 @@ def collect_all():
     else:
         print("  No new jobs found")
     
-    print(f"[{datetime.now()}] ===== Collection Complete =====\n")
+    log_section("Collection Cycle Complete")
 
 if __name__ == "__main__":
-    print("Job Radar Collector Starting...")
-    print("  Sources: Greenhouse, Lever, Workday")
-    print("  Skills: DYNAMICALLY EXTRACTED using amjad-awad/skill-extractor\n")
+    log_section("Job Radar Collector")
+
+    log("Sources : Greenhouse, Lever, Workday")
+    log("Skill Extractor : amjad-awad/skill-extractor")
+    log(f"Database : {DB_HOST}:{DB_PORT}/{DB_NAME}")
     
     init_db()
     collect_all()
     
-    print("Starting scheduler (every 6 hours)...")
+    log("Scheduler started (every 6 hours)")
     scheduler = BlockingScheduler()
     scheduler.add_job(collect_all, 'interval', hours=6)
     
     try:
         scheduler.start()
     except KeyboardInterrupt:
-        print("Shutting down...")
+        log("Collector stopped", "INFO")
         sys.exit(0)
