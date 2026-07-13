@@ -14,6 +14,8 @@ services:
       DB_PASSWORD: jobradar123
     volumes:
       - ./data:/app/data
+    networks:
+      - homelab   # <-- ADD THIS
 
   dashboard:
     build:
@@ -28,3 +30,9 @@ services:
       DB_NAME: jobradar_db
       DB_USER: jobradar
       DB_PASSWORD: jobradar123
+    networks:
+      - homelab   # <-- ADD THIS
+
+networks:
+  homelab:
+    external: true
