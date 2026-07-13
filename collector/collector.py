@@ -384,13 +384,23 @@ def collect_all():
     
     all_jobs = []
     greenhouse_start = time.time()
+    greenhouse_fetched = 0
+    greenhouse_relevant = 0
     log(f"[1/3] Greenhouse ({len(companies['greenhouse'])} companies)")
     for company_name, company_id in companies['greenhouse']:
-        jobs = collect_greenhouse(company_name, company_id)
-        filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
-        all_jobs.extend(filtered)
+        fetched = len(jobs)
+        relevant = len(filtered)
+        rejected = fetched - relevant
+        greenhouse_fetched += fetched
+        greenhouse_relevant += relevant
 
-        log(f"    {company_name}: {len(filtered)} relevant")
+        log(
+            f"[GREENHOUSE] "
+            f"{company_name} | "
+            f"Fetched: {fetched} | "
+            f"Relevant: {relevant} | "
+            f"Rejected: {rejected}"
+)
     greenhouse_time = time.time() - greenhouse_start
 
     log(
@@ -399,12 +409,23 @@ def collect_all():
     f"Time: {greenhouse_time:.2f}s"
 )
     lever_start = time.time()
+    lever_fetched = 0
+    lever_relevant = 0
     log(f"  [2/3] Lever: {len(companies['lever'])} companies")
     for company_name, company_id in companies['lever']:
-        jobs = collect_lever(company_name, company_id)
-        filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
-        all_jobs.extend(filtered)
-        log(f"    {company_name}: {len(filtered)} relevant")
+        fetched = len(jobs)
+        relevant = len(filtered)
+        rejected = fetched - relevant
+        lever_fetched += fetched
+        lever_relevant += relevant
+
+        log(
+            f"[LEVER] "
+            f"{company_name} | "
+            f"Fetched: {fetched} | "
+            f"Relevant: {relevant} | "
+            f"Rejected: {rejected}"
+            )
 
     lever_time = time.time() - lever_start
 
@@ -415,13 +436,23 @@ def collect_all():
      )
     
     workday_start = time.time()
+    workday_fetched = 0
+    workday_relevant = 0
     log(f"  [3/3] Workday: {len(companies['workday'])} companies")
     for company_name, company_url in companies['workday']:
-        jobs = collect_workday(company_name, company_url)
-        filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
-        all_jobs.extend(filtered)
-        log(f"    {company_name}: {len(filtered)} relevant")
-    
+        fetched = len(jobs)
+        relevant = len(filtered)
+        rejected = fetched - relevant
+        workday_fetched += fetched
+        workday_relevant += relevant
+
+        log(
+            f"[WORKDAY] "
+            f"{company_name} | "
+            f"Fetched: {fetched} | "
+            f"Relevant: {relevant} | "
+            f"Rejected: {rejected}"
+          )
     workday_time = time.time() - workday_start
 
     log(
