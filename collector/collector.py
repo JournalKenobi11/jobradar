@@ -4,10 +4,13 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import os
 import time
 import sys
+import spacy
+from collections import Counter
+import re
 
 from greenhouse import collect_greenhouse
 from lever import collect_lever
-from workday import collect_workday
+from workday import collect_workday_public as collect_workday
 
 DB_HOST = os.getenv('DB_HOST', 'postgres')
 DB_PORT = os.getenv('DB_PORT', '5432')
@@ -15,26 +18,19 @@ DB_NAME = os.getenv('DB_NAME', 'jobradar_db')
 DB_USER = os.getenv('DB_USER', 'jobradar')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'jobradar123')
 
-SKILLS = [
-    'python', 'sql', 'pandas', 'numpy', 'scikit-learn', 'pytorch',
-    'tensorflow', 'aws', 'docker', 'linux', 'git', 'powerbi',
-    'tableau', 'spark', 'kafka', 'airflow', 'databricks',
-    'postgresql', 'mongodb', 'fastapi', 'kubernetes', 'azure',
-    'gcp', 'snowflake', 'mlflow', 'nlp', 'llm', 'rag', 'keras',
-    'flask', 'django', 'hadoop', 'excel', 'scala', 'java',
-    'c++', 'javascript', 'react', 'angular', 'nodejs',
-    'mlops', 'dvc', 'prometheus', 'grafana'
-]
+# Load spaCy model (will be installed in Dockerfile)
+# Using the small model for speed, or the large model for better accuracy
+nlp = spacy.load("en_core_web_sm")
 
+# ============================================================
+# ROLE & LOCATION FILTERING
+# ============================================================
 ROLE_KEYWORDS = [
     'data scientist', 'data analyst', 'ml engineer',
     'machine learning engineer', 'data engineer', 'ai engineer',
-    'research scientist', 'applied scientist', 'data architect'
-]
-
-LEVEL_KEYWORDS = [
-    'intern', 'junior', 'associate', 'graduate', 'entry', 'fresher',
-    'trainee', '0-2', '0-3', '0-1', 'early career', 'new grad'
+    'research scientist', 'applied scientist', 'data architect',
+    'astrophysicist', 'astronomer', 'scientific programmer',
+    'scientific computing', 'hpc', 'computational scientist'
 ]
 
 LOCATIONS = [
@@ -97,10 +93,11 @@ def init_db():
     """)
     
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS company_stats (
-            company TEXT PRIMARY KEY,
-            total_jobs INTEGER DEFAULT 0,
-            last_seen DATE
+        CREATE TABLE IF NOT EXISTS word_frequency (
+            word TEXT,
+            date DATE,
+            count INTEGER,
+            PRIMARY KEY (word, date)
         )
     """)
     
@@ -113,17 +110,8 @@ def init_db():
     conn.close()
     print("  Database initialized")
 
-def extract_skills(text):
-    if not text:
-        return []
-    found = []
-    text_lower = text.lower()
-    for skill in SKILLS:
-        if skill in text_lower:
-            found.append(skill)
-    return list(set(found))
-
 def is_relevant(title, location):
+    """Check if job matches your target roles + locations."""
     title_lower = title.lower()
     location_lower = location.lower()
     
@@ -131,12 +119,96 @@ def is_relevant(title, location):
     if not role_match:
         return False
     
-    level_match = any(k in title_lower for k in LEVEL_KEYWORDS)
-    if not level_match:
-        return False
-    
     location_match = any(k in location_lower for k in LOCATIONS)
     return location_match
+
+def extract_skills_spacy(text):
+    """
+    Extract skills from text using spaCy NLP.
+    This is the core change — dynamic skill discovery.
+    """
+    if not text or len(text) < 10:
+        return []
+    
+    # Process the text with spaCy
+    doc = nlp(text.lower())
+    
+    skills = set()
+    
+    # Method 1: Extract noun chunks (phrases like "machine learning", "data science")
+    for chunk in doc.noun_chunks:
+        # Filter out chunks that are too short or common
+        chunk_text = chunk.text.strip()
+        if len(chunk_text) > 2 and len(chunk_text) < 40:
+            # Check if it looks like a technical skill
+            # (has at least one noun/proper noun)
+            if any(token.pos_ in {"NOUN", "PROPN"} for token in chunk):
+                skills.add(chunk_text)
+    
+    # Method 2: Extract individual nouns and proper nouns
+    for token in doc:
+        if token.pos_ in {"NOUN", "PROPN"}:
+            if len(token.text) > 2 and not token.is_stop:
+                skills.add(token.text)
+    
+    # Method 3: Extract compound nouns (e.g., "machine learning engineer")
+    # These are often multi-word skills that aren't captured as noun chunks
+    for i in range(len(doc) - 1):
+        token1 = doc[i]
+        token2 = doc[i + 1]
+        if token1.pos_ in {"NOUN", "PROPN"} and token2.pos_ in {"NOUN", "PROPN"}:
+            phrase = f"{token1.text} {token2.text}"
+            if len(phrase) > 4 and phrase not in skills:
+                skills.add(phrase)
+        
+        # Also check for 3-word phrases
+        if i < len(doc) - 2:
+            token3 = doc[i + 2]
+            if token1.pos_ in {"NOUN", "PROPN"} and token2.pos_ in {"NOUN", "PROPN"} and token3.pos_ in {"NOUN", "PROPN"}:
+                phrase = f"{token1.text} {token2.text} {token3.text}"
+                if len(phrase) > 6 and phrase not in skills:
+                    skills.add(phrase)
+    
+    # Filter out common non-skills
+    common_words = {
+        'experience', 'degree', 'bachelor', 'master', 'phd', 'science',
+        'technology', 'engineering', 'mathematics', 'statistics', 'computer',
+        'software', 'hardware', 'system', 'systems', 'design', 'development',
+        'analysis', 'research', 'team', 'work', 'project', 'role', 'position',
+        'senior', 'junior', 'lead', 'manager', 'director', 'head', 'principal',
+        'staff', 'expert', 'analyst', 'architect', 'developer', 'engineer',
+        'scientist', 'researcher', 'consultant', 'specialist', 'solutions',
+        'platform', 'infrastructure', 'architecture', 'framework', 'library',
+        'tool', 'tools', 'technologies', 'technology', 'services', 'service',
+        'cloud', 'server', 'client', 'database', 'data', 'analytics', 'insights',
+        'business', 'product', 'strategy', 'operations', 'support', 'maintenance',
+        'performance', 'security', 'compliance', 'governance', 'quality', 'testing',
+        'deployment', 'production', 'environment', 'agile', 'scrum', 'kanban',
+        'jira', 'confluence', 'github', 'gitlab', 'bitbucket', 'devops',
+        'continuous', 'integration', 'delivery', 'automation', 'orchestration',
+        'monitoring', 'logging', 'alerting', 'dashboard', 'reporting', 'visualization',
+        'communication', 'management', 'leadership', 'teamwork', 'collaboration',
+        'problem', 'solving', 'critical', 'thinking', 'analytical', 'attention',
+        'detail', 'organization', 'planning', 'prioritization', 'time', 'flexibility',
+        'adaptability', 'creativity', 'innovation', 'initiative', 'self', 'motivated',
+        'interpersonal', 'presentation', 'negotiation', 'persuasion', 'influence'
+    }
+    
+    # Remove common non-skills
+    filtered_skills = set()
+    for skill in skills:
+        # If the skill is a common word, skip it
+        if skill.lower() in common_words:
+            continue
+        
+        # If the skill is very long and contains common words, skip it
+        if len(skill) > 30:
+            continue
+        
+        # Keep the skill
+        filtered_skills.add(skill)
+    
+    return list(filtered_skills)
 
 def save_jobs(jobs):
     if not jobs:
@@ -173,9 +245,13 @@ def save_jobs(jobs):
     print(f"  Saved {saved_count} new jobs")
 
 def compute_daily_skills():
+    """
+    Compute skill rankings for today using spaCy NLP.
+    """
     conn = get_db_connection()
     cur = conn.cursor()
     
+    # Get today's jobs
     cur.execute("""
         SELECT job_id, title, description FROM jobs
         WHERE posted_date = CURRENT_DATE
@@ -189,11 +265,14 @@ def compute_daily_skills():
         conn.close()
         return
     
+    # Extract skills from all jobs
     skill_counts = {}
+    all_skill_terms = []
     
     for job_id, title, description in jobs:
         text = f"{title} {description if description else ''}"
-        skills = extract_skills(text)
+        skills = extract_skills_spacy(text)
+        all_skill_terms.extend(skills)
         for skill in skills:
             skill_counts[skill] = skill_counts.get(skill, 0) + 1
     
@@ -203,9 +282,11 @@ def compute_daily_skills():
         conn.close()
         return
     
+    # Sort by frequency
     sorted_skills = sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)
     
-    for rank, (skill, count) in enumerate(sorted_skills, 1):
+    # Save top 200 skills to skills_daily
+    for rank, (skill, count) in enumerate(sorted_skills[:200], 1):
         cur.execute("""
             INSERT INTO skills_daily (date, skill, count, rank)
             VALUES (CURRENT_DATE, %s, %s, %s)
@@ -213,18 +294,21 @@ def compute_daily_skills():
                 count = EXCLUDED.count,
                 rank = EXCLUDED.rank
         """, (skill, count, rank))
-        
+    
+    # Save word frequency for trend analysis
+    skill_counter = Counter(all_skill_terms)
+    for skill, count in skill_counter.most_common(300):
         cur.execute("""
-            INSERT INTO skills_trend (skill, date, count)
+            INSERT INTO word_frequency (word, date, count)
             VALUES (%s, CURRENT_DATE, %s)
-            ON CONFLICT (skill, date) DO UPDATE SET
+            ON CONFLICT (word, date) DO UPDATE SET
                 count = EXCLUDED.count
         """, (skill, count))
     
     conn.commit()
     cur.close()
     conn.close()
-    print(f"  Computed {len(sorted_skills)} skills")
+    print(f"  Computed {len(sorted_skills)} skills dynamically via NLP")
 
 def collect_all():
     print(f"\n[{datetime.now()}] ===== Starting Collection =====")
@@ -246,15 +330,20 @@ def collect_all():
             ("Swiggy", "swiggy"),
         ],
         'workday': [
-            ("JPMorgan Chase", "jpmorgan"),
-            ("Morgan Stanley", "morganstanley"),
-            ("Goldman Sachs", "goldmansachs"),
-            ("Barclays", "barclays"),
-            ("NVIDIA", "nvidia"),
-            ("Microsoft", "microsoft"),
-            ("TCS", "tcs"),
-            ("Infosys", "infosys"),
-            ("Accenture", "accenture"),
+            ("NVIDIA", "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite"),
+            ("Microsoft", "https://microsoft.wd1.myworkdayjobs.com/en-US/MSFTJobs"),
+            ("Amazon", "https://amazon.wd1.myworkdayjobs.com/en-US/External"),
+            ("JPMorgan Chase", "https://jpmchase.wd1.myworkdayjobs.com/en-US/External"),
+            ("Morgan Stanley", "https://morganstanley.wd1.myworkdayjobs.com/en-US/External"),
+            ("Goldman Sachs", "https://goldmansachs.wd1.myworkdayjobs.com/en-US/External"),
+            ("Barclays", "https://barclays.wd1.myworkdayjobs.com/en-US/External"),
+            ("TCS", "https://tcs.wd3.myworkdayjobs.com/en-US/TCS_Careers"),
+            ("Infosys", "https://infosys.wd1.myworkdayjobs.com/en-US/External"),
+            ("Accenture", "https://accenture.wd1.myworkdayjobs.com/en-US/AccentureCareers"),
+            ("Deloitte", "https://deloitte.wd1.myworkdayjobs.com/en-US/Deloitte"),
+            ("PwC", "https://pwc.wd1.myworkdayjobs.com/en-US/External"),
+            ("EY", "https://ey.wd1.myworkdayjobs.com/en-US/Careers"),
+            ("KPMG", "https://kpmg.wd1.myworkdayjobs.com/en-US/External"),
         ]
     }
     
@@ -275,8 +364,8 @@ def collect_all():
         print(f"    {company_name}: {len(filtered)} relevant")
     
     print(f"  [3/3] Workday: {len(companies['workday'])} companies")
-    for company_name, company_id in companies['workday']:
-        jobs = collect_workday(company_name, company_id)
+    for company_name, company_url in companies['workday']:
+        jobs = collect_workday(company_name, company_url)
         filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
         all_jobs.extend(filtered)
         print(f"    {company_name}: {len(filtered)} relevant")
@@ -292,7 +381,8 @@ def collect_all():
 
 if __name__ == "__main__":
     print("Job Radar Collector Starting...")
-    print("  Sources: Greenhouse, Lever, Workday\n")
+    print("  Sources: Greenhouse, Lever, Workday")
+    print("  Skills: DYNAMICALLY EXTRACTED using spaCy NLP\n")
     
     init_db()
     collect_all()

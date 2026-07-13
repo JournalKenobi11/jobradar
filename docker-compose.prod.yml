@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  collector:
+    build:
+      context: ./collector
+    container_name: job_collector
+    restart: always
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: jobradar_db
+      DB_USER: jobradar
+      DB_PASSWORD: jobradar123
+    volumes:
+      - ./data:/app/data
+
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: job_dashboard
+    restart: always
+    ports:
+      - "8501:8501"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: jobradar_db
+      DB_USER: jobradar
+      DB_PASSWORD: jobradar123
