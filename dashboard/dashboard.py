@@ -129,12 +129,12 @@ elif view == "📈 Skills":
         """)
     else:
         cur.execute("""
-            SELECT skill, SUM(count) as total
-            FROM skills_daily
-            WHERE date >= CURRENT_DATE - INTERVAL '30 days'
-            GROUP BY skill
-            ORDER BY total DESC LIMIT 20
-        """)
+    SELECT skill, SUM(count) as total
+    FROM skills_daily
+    WHERE date >= CURRENT_DATE - INTERVAL '7 days'
+    GROUP BY skill
+    ORDER BY total DESC LIMIT 20
+""")
     
     skills = cur.fetchall()
     
@@ -167,7 +167,7 @@ elif view == "💼 Jobs":
     query = """
         SELECT company, title, location, source, posted_date, url
         FROM jobs
-        WHERE posted_date >= CURRENT_DATE - INTERVAL %s DAY
+        WHERE posted_date >= CURRENT_DATE - INTERVAL '%s days'
     """
     params = [days_filter]
     
