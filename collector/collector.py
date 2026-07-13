@@ -125,7 +125,7 @@ def is_relevant(title, location):
 def extract_skills_spacy(text):
     """
     Extract skills from text using spaCy NLP.
-    This is the core change — dynamic skill discovery.
+    Returns ALL skills found, not just one.
     """
     if not text or len(text) < 10:
         return []
@@ -135,57 +135,75 @@ def extract_skills_spacy(text):
     
     skills = set()
     
-    # Method 1: Extract noun chunks (phrases like "machine learning", "data science")
+    # 1. Extract noun chunks (phrases like "machine learning", "data science")
     for chunk in doc.noun_chunks:
-        # Filter out chunks that are too short or common
         chunk_text = chunk.text.strip()
-        if len(chunk_text) > 2 and len(chunk_text) < 40:
-            # Check if it looks like a technical skill
-            # (has at least one noun/proper noun)
+        # Keep chunks between 2 and 40 characters
+        if 2 < len(chunk_text) < 40:
+            # Must contain at least one noun or proper noun
             if any(token.pos_ in {"NOUN", "PROPN"} for token in chunk):
                 skills.add(chunk_text)
     
-    # Method 2: Extract individual nouns and proper nouns
+    # 2. Extract individual nouns and proper nouns
     for token in doc:
         if token.pos_ in {"NOUN", "PROPN"}:
-            if len(token.text) > 2 and not token.is_stop:
+            if 2 < len(token.text) < 20 and not token.is_stop:
                 skills.add(token.text)
     
-    # Method 3: Extract compound nouns (e.g., "machine learning engineer")
-    # These are often multi-word skills that aren't captured as noun chunks
+    # 3. Extract 2-word compounds
     for i in range(len(doc) - 1):
         token1 = doc[i]
         token2 = doc[i + 1]
         if token1.pos_ in {"NOUN", "PROPN"} and token2.pos_ in {"NOUN", "PROPN"}:
             phrase = f"{token1.text} {token2.text}"
-            if len(phrase) > 4 and phrase not in skills:
+            if 4 < len(phrase) < 30:
                 skills.add(phrase)
         
-        # Also check for 3-word phrases
+        # 3-word compounds
         if i < len(doc) - 2:
             token3 = doc[i + 2]
-            if token1.pos_ in {"NOUN", "PROPN"} and token2.pos_ in {"NOUN", "PROPN"} and token3.pos_ in {"NOUN", "PROPN"}:
+            if (token1.pos_ in {"NOUN", "PROPN"} and 
+                token2.pos_ in {"NOUN", "PROPN"} and 
+                token3.pos_ in {"NOUN", "PROPN"}):
                 phrase = f"{token1.text} {token2.text} {token3.text}"
-                if len(phrase) > 6 and phrase not in skills:
+                if 6 < len(phrase) < 40:
                     skills.add(phrase)
     
-    # Filter out common non-skills
+    # 4. Extract common technical skills (hardcoded fallback)
+    technical_skills = [
+        'python', 'sql', 'java', 'c++', 'javascript', 'typescript',
+        'react', 'angular', 'vue', 'node.js', 'express', 'django',
+        'flask', 'spring', 'docker', 'kubernetes', 'aws', 'azure',
+        'gcp', 'linux', 'git', 'jenkins', 'ci/cd', 'terraform',
+        'ansible', 'puppet', 'chef', 'nginx', 'apache', 'mysql',
+        'postgresql', 'mongodb', 'redis', 'elasticsearch', 'kafka',
+        'spark', 'hadoop', 'airflow', 'databricks', 'snowflake',
+        'pandas', 'numpy', 'scikit-learn', 'tensorflow', 'pytorch',
+        'keras', 'machine learning', 'deep learning', 'nlp', 'computer vision',
+        'llm', 'rag', 'langchain', 'fine-tuning', 'mlflow',
+        'data science', 'data engineering', 'etl', 'data pipeline',
+        'mlops', 'fastapi', 'streamlit', 'gradio', 'pytest'
+    ]
+    
+    for skill in technical_skills:
+        if skill in text.lower():
+            skills.add(skill)
+    
+    # 5. Remove common non-skills
     common_words = {
         'experience', 'degree', 'bachelor', 'master', 'phd', 'science',
         'technology', 'engineering', 'mathematics', 'statistics', 'computer',
-        'software', 'hardware', 'system', 'systems', 'design', 'development',
+        'software', 'hardware', 'system', 'design', 'development',
         'analysis', 'research', 'team', 'work', 'project', 'role', 'position',
         'senior', 'junior', 'lead', 'manager', 'director', 'head', 'principal',
         'staff', 'expert', 'analyst', 'architect', 'developer', 'engineer',
         'scientist', 'researcher', 'consultant', 'specialist', 'solutions',
         'platform', 'infrastructure', 'architecture', 'framework', 'library',
-        'tool', 'tools', 'technologies', 'technology', 'services', 'service',
-        'cloud', 'server', 'client', 'database', 'data', 'analytics', 'insights',
+        'tool', 'tools', 'technologies', 'services', 'service',
+        'cloud', 'server', 'client', 'database', 'analytics', 'insights',
         'business', 'product', 'strategy', 'operations', 'support', 'maintenance',
-        'performance', 'security', 'compliance', 'governance', 'quality', 'testing',
-        'deployment', 'production', 'environment', 'agile', 'scrum', 'kanban',
-        'jira', 'confluence', 'github', 'gitlab', 'bitbucket', 'devops',
-        'continuous', 'integration', 'delivery', 'automation', 'orchestration',
+        'performance', 'security', 'compliance', 'quality', 'testing',
+        'deployment', 'production', 'environment', 'agile', 'scrum',
         'monitoring', 'logging', 'alerting', 'dashboard', 'reporting', 'visualization',
         'communication', 'management', 'leadership', 'teamwork', 'collaboration',
         'problem', 'solving', 'critical', 'thinking', 'analytical', 'attention',
@@ -194,20 +212,14 @@ def extract_skills_spacy(text):
         'interpersonal', 'presentation', 'negotiation', 'persuasion', 'influence'
     }
     
-    # Remove common non-skills
+    # Remove common words
     filtered_skills = set()
     for skill in skills:
-        # If the skill is a common word, skip it
-        if skill.lower() in common_words:
-            continue
-        
-        # If the skill is very long and contains common words, skip it
-        if len(skill) > 30:
-            continue
-        
-        # Keep the skill
-        filtered_skills.add(skill)
+        skill_lower = skill.lower()
+        if skill_lower not in common_words:
+            filtered_skills.add(skill)
     
+    # Convert to list and return
     return list(filtered_skills)
 
 def save_jobs(jobs):
