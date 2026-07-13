@@ -83,7 +83,11 @@ def get_db_connection():
             )
             return conn
         except Exception as e:
-            print(f"  DB connection attempt {i+1}/{max_retries} failed: {e}")
+            log(
+                 f"Database connection attempt "
+                 f"{i + 1}/{max_retries} failed: {e}",
+                 level="WARNING"
+                )
             time.sleep(3)
     raise Exception("Could not connect to database")
 
@@ -188,12 +192,12 @@ def save_jobs(jobs):
             if cur.rowcount > 0:
                 saved_count += 1
         except Exception as e:
-            print(f"  Error saving job: {e}")
+            log(f"Error saving job: {e}", level="ERROR")
     
     conn.commit()
     cur.close()
     conn.close()
-    print(f"  Saved {saved_count} new jobs")
+    log(f"Saved {saved_count} new jobs")
 
 def compute_daily_skills():
     conn = get_db_connection()
@@ -207,7 +211,7 @@ def compute_daily_skills():
     jobs = cur.fetchall()
     
     if not jobs:
-        print("  No jobs today, skipping skill computation")
+        log("No jobs collected today. Skipping skill computation.")
         cur.close()
         conn.close()
         return
@@ -223,7 +227,7 @@ def compute_daily_skills():
             skill_counts[skill] = skill_counts.get(skill, 0) + 1
     
     if not skill_counts:
-        print("  No skills extracted")
+        log("No skills extracted from today's jobs.")
         cur.close()
         conn.close()
         return
@@ -251,7 +255,7 @@ def compute_daily_skills():
     conn.commit()
     cur.close()
     conn.close()
-    print(f"  Computed {len(sorted_skills)} skills")
+    log(f"Computed {len(sorted_skills)} unique skills")
 
 def collect_all():
     log_section("Starting Collection Cycle")
@@ -379,33 +383,33 @@ def collect_all():
     
     all_jobs = []
     
-    print(f"  [1/3] Greenhouse: {len(companies['greenhouse'])} companies")
+    log(f"[1/3] Greenhouse ({len(companies['greenhouse'])} companies)")
     for company_name, company_id in companies['greenhouse']:
         jobs = collect_greenhouse(company_name, company_id)
         filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
         all_jobs.extend(filtered)
-        print(f"    {company_name}: {len(filtered)} relevant")
+        log(f"    {company_name}: {len(filtered)} relevant")
     
-    print(f"  [2/3] Lever: {len(companies['lever'])} companies")
+    log(f"  [2/3] Lever: {len(companies['lever'])} companies")
     for company_name, company_id in companies['lever']:
         jobs = collect_lever(company_name, company_id)
         filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
         all_jobs.extend(filtered)
-        print(f"    {company_name}: {len(filtered)} relevant")
+        log(f"    {company_name}: {len(filtered)} relevant")
     
-    print(f"  [3/3] Workday: {len(companies['workday'])} companies")
+    log(f"  [3/3] Workday: {len(companies['workday'])} companies")
     for company_name, company_url in companies['workday']:
         jobs = collect_workday(company_name, company_url)
         filtered = [j for j in jobs if is_relevant(j['title'], j['location'])]
         all_jobs.extend(filtered)
-        print(f"    {company_name}: {len(filtered)} relevant")
+        log(f"    {company_name}: {len(filtered)} relevant")
     
     if all_jobs:
         save_jobs(all_jobs)
         compute_daily_skills()
-        print(f"  Total new jobs: {len(all_jobs)}")
+        log(f"  Total new jobs: {len(all_jobs)}")
     else:
-        print("  No new jobs found")
+        log("  No new jobs found in this cycle")
     
     log_section("Collection Cycle Complete")
 
