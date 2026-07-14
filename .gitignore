@@ -1,0 +1,14 @@
+cat <<EOF > .gitignore
+# Ignore secrets
+token.txt
+
+# Ignore Python cache
+collector/__pycache__/
+*.pyc
+
+# Ignore the models folder
+models/skill-extractor/
+
+# Ignore the test script
+run_test.sh
+EOF
