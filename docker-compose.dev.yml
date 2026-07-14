@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  test_db:
+    image: postgres:15-alpine
+    container_name: jobradar_test_db
+    environment:
+      POSTGRES_DB: jobradar_test_db
+      POSTGRES_USER: jobradar_test
+      POSTGRES_PASSWORD: jobradar_test_pass
+    ports:
+      - "5433:5432" # Map to host port 5433 to avoid conflicts if prod PG is running
+    volumes:
+      - test_db_data:/var/lib/postgresql/data
+
+  test_collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+    container_name: jobradar_test_collector
+    # Mount local folder so code edits reflect instantly without rebuilding
+    volumes:
+      - ./collector:/app
+    environment:
+      - DB_HOST=test_db
+      - DB_PORT=5432
+      - DB_NAME=jobradar_test_db
+      - DB_USER=jobradar_test
+      - DB_PASSWORD=jobradar_test_pass
+    depends_on:
+      - test_db
+    # Override command to run the script once for testing, then exit (instead of scheduling)
+    command: python -u collector.py
+
+volumes:
+  test_db_data:
