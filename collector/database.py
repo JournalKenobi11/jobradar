@@ -54,7 +54,9 @@ def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
 
+    # --------------------------------------------------------
     # Create master Jobs schema
+    # --------------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             job_id TEXT PRIMARY KEY,
@@ -69,7 +71,9 @@ def init_db():
         )
     """)
 
+    # --------------------------------------------------------
     # Daily aggregation tables
+    # --------------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS skills_daily (
             date DATE,
@@ -98,10 +102,40 @@ def init_db():
         )
     """)
 
-    # Performance enhancement query indexes
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_posted_date ON jobs(posted_date)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source)")
+    # --------------------------------------------------------
+    # Automatic schema migrations
+    # Safe to run every startup
+    # --------------------------------------------------------
+
+    # Per-job extracted skills
+    cur.execute("""
+        ALTER TABLE jobs
+        ADD COLUMN IF NOT EXISTS extracted_skills TEXT;
+    """)
+
+    # Skill category for analytics
+    cur.execute("""
+        ALTER TABLE skills_daily
+        ADD COLUMN IF NOT EXISTS category TEXT;
+    """)
+
+    # --------------------------------------------------------
+    # Performance indexes
+    # --------------------------------------------------------
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_jobs_posted_date
+        ON jobs(posted_date)
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_jobs_company
+        ON jobs(company)
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_jobs_source
+        ON jobs(source)
+    """)
 
     conn.commit()
     cur.close()
