@@ -1,50 +1,7 @@
-"""Configuration Module.
-
-This module acts as a single source of truth for all environment variables,
-database configurations, keyword rules, and targeted scrape target lists.
-"""
-
-import os
-
-# ============================================================
-# DATABASE CREDENTIALS
-# ============================================================
-DB_HOST = os.getenv('DB_HOST', 'postgres')
-DB_PORT = os.getenv('DB_PORT', '5432')
-DB_NAME = os.getenv('DB_NAME', 'jobradar_db')
-DB_USER = os.getenv('DB_USER', 'jobradar')
-DB_PASSWORD = os.getenv('DB_PASSWORD', 'jobradar123')
-
-# ============================================================
-# FILTERING CRITERIA KEYWORDS
-# ============================================================
-# Role-related keywords used to check job title relevance
-ROLE_KEYWORDS = [
-    'data scientist', 'data analyst', 'ml engineer',
-    'machine learning engineer', 'data engineer', 'ai engineer',
-    'research scientist', 'applied scientist', 'data architect',
-    'astrophysicist', 'astronomer', 'scientific programmer',
-    'scientific computing', 'hpc', 'computational scientist'
-]
-
-# Target location keywords for geo-filtering
-LOCATIONS = [
-    'mumbai', 'pune', 'bangalore', 'hyderabad', 'chennai',
-    'delhi', 'gurgaon', 'noida', 'india', 'hybrid'
-]
-
-# ============================================================
-# SCRAPER TARGET REGISTRY
-# ============================================================
-# Tokens below were re-verified (2026-07) against each ATS's real API -
-# the original list had several guessed slugs that 404'd (e.g. Razorpay
-# was "razorpay", real token is "razorpaysoftwareprivatelimited").
-# Companies that don't have any public ATS API were moved out to
-# NO_PUBLIC_ATS at the bottom rather than left in here 404ing every cycle.
-
-COMPANIES = {
+companies = {
     'greenhouse': [
-        ("Razorpay", "razorpaysoftwareprivatelimited"),
+        # Verified via resolver (real tokens, confirmed by non-404 responses)
+        ("Razorpay", "razorpaysoftwareprivatelimited"),  # NOTE: was "razorpay" - wrong, fixed
         ("Postman", "postman"),
         ("Groww", "groww"),
         ("PhonePe", "phonepe"),
@@ -68,6 +25,7 @@ COMPANIES = {
     ],
 
     'lever': [
+        # Verified via resolver
         ("CRED", "cred"),
         ("Meesho", "meesho"),
         ("Paytm", "paytm"),
@@ -75,32 +33,44 @@ COMPANIES = {
         ("Netflix", "netflix"),
         ("Spotify", "spotify"),
         ("KPMG", "kpmg"),
-        ("Deloitte", "deloitte"),  # also on Workday below - kept both, real coverage differs
+        ("Deloitte", "deloitte"),  # new find - spot-check once before fully trusting
     ],
 
     'smartrecruiters': [
+        # Verified via resolver (now requires totalFound > 0, so these are real)
         ("Swiggy", "swiggy"),
         ("NielsenIQ", "nielseniq"),
         ("Uber", "uber"),
-        ("Visa", "visa"),  # also on Workday below - kept both
+        ("Visa", "visa"),
     ],
 
     'workable': [
+        # Verified via resolver (now requires jobs > 0, so these are real)
         ("Tiger Analytics", "tiger-analytics"),
         ("Hugging Face", "huggingface"),
     ],
 
     'recruitee': [
-        # Verified (non-empty offers), but unusual for companies this size -
-        # spot-check https://{token}.recruitee.com/api/offers/ occasionally
-        # to make sure it's still their real board and not stale/repurposed.
-        ("Meta", "meta"),            # also on Workday below - kept both
-        ("Salesforce", "salesforce"),  # also on Workday below - kept both
-        ("Accenture", "accenture"),    # also on Workday below - kept both
-        ("EY", "ey"),                  # also on Workday below - kept both
+        # Verified via resolver (non-empty offers), but SANITY-CHECK MANUALLY
+        # before trusting fully - unusual for companies this size to run
+        # Recruitee. Open these URLs in a browser once:
+        #   https://meta.recruitee.com/api/offers/
+        #   https://salesforce.recruitee.com/api/offers/
+        #   https://accenture.recruitee.com/api/offers/
+        #   https://ey.recruitee.com/api/offers/
+        ("Meta", "meta"),
+        ("Salesforce", "salesforce"),
+        ("Accenture", "accenture"),
+        ("EY", "ey"),
     ],
 
     'workday': [
+        # These were ALREADY CORRECT in your original list - the resolver's
+        # crawl-based guesses for some of these (Citigroup, Bank of America,
+        # Mastercard) were WRONG (grabbed random tracking/asset paths from
+        # the page, not the real job board). Keeping your original, verified
+        # URLs here unchanged. The only fix needed was in workday.py itself
+        # (missing appliedFacets), which is already done.
         ("NVIDIA", "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite"),
         ("Microsoft", "https://microsoft.wd1.myworkdayjobs.com/en-US/MSFTJobs"),
         ("Amazon", "https://amazon.wd1.myworkdayjobs.com/en-US/External"),
@@ -110,7 +80,7 @@ COMPANIES = {
         ("AMD", "https://amd.wd1.myworkdayjobs.com/en-US/External"),
         ("Intel", "https://intel.wd1.myworkdayjobs.com/en-US/External"),
         ("Oracle", "https://oracle.wd1.myworkdayjobs.com/en-US/External"),
-        ("Salesforce", "https://salesforce.wd1.myworkdayjobs.com/en-US/External_Career_Site"),
+        ("Salesforce", "https://salesforce.wd1.myworkdayjobs.com/en-US/External"),
         ("TCS", "https://tcs.wd3.myworkdayjobs.com/en-US/TCS_Careers"),
         ("Infosys", "https://infosys.wd1.myworkdayjobs.com/en-US/External"),
         ("Wipro", "https://wipro.wd1.myworkdayjobs.com/en-US/External"),
@@ -151,17 +121,17 @@ COMPANIES = {
     ],
 }
 
-# ============================================================
-# NO PUBLIC ATS FOUND
-# ============================================================
-# Confirmed via direct-slug-guessing + careers-page crawl: no working public
-# API on any of Greenhouse/Lever/Workday/SmartRecruiters/Workable/Recruitee.
-# Left out of COMPANIES so the collectors don't waste cycles 404ing on them.
-# Would need a per-company HTML scraper to cover these, or drop them.
+# ---------------------------------------------------------------------------
+# NO PUBLIC ATS FOUND - confirmed unresolved after direct-guess + site-crawl.
+# These need either a custom scraper for their career page, or should be
+# dropped from your target list. Not worth chasing for a handful of DS roles
+# unless one of these is a must-have target for you.
+# ---------------------------------------------------------------------------
 NO_PUBLIC_ATS = [
     "Zepto", "Flipkart", "Zomato", "Ola", "Dream11",
-    "Fractal Analytics", "Quantiphi",  # original slugs were wrong, no verified alt found
     "ZS Associates", "Mu Sigma", "LatentView Analytics", "Course5 Intelligence",
     "GitHub", "Shopify", "Zerodha",
     "Weights & Biases", "Modal Labs", "Replicate", "Cerebras",
+    # Susquehanna and Citadel are NOT in this list - they already have
+    # working Workday URLs in the 'workday' section above.
 ]

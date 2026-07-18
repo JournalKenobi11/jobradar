@@ -19,6 +19,25 @@ import nlp_engine
 from greenhouse import collect_greenhouse
 from lever import collect_lever
 from workday import collect_workday_public as collect_workday
+from smartrecruiters import collect_smartrecruiters
+from workable import collect_workable
+from recruitee import collect_recruitee
+
+# ============================================================
+# ATS ADAPTER REGISTRY
+# ============================================================
+# Each entry: (display_name, config key in config.COMPANIES, collector fn)
+# Adding a new ATS integration means adding one line here - not a new
+# copy-pasted block.
+
+ATS_ADAPTERS = [
+    ("GREENHOUSE", "greenhouse", collect_greenhouse),
+    ("LEVER", "lever", collect_lever),
+    ("WORKDAY", "workday", collect_workday),
+    ("SMARTRECRUITERS", "smartrecruiters", collect_smartrecruiters),
+    ("WORKABLE", "workable", collect_workable),
+    ("RECRUITEE", "recruitee", collect_recruitee),
+]
 
 # ============================================================
 # PIPELINE DIAGNOSTIC LOGGING
@@ -37,109 +56,64 @@ def log_section(title):
     print("=" * 70, flush=True)
 
 
+def run_platform(display_name, config_key, collector_fn, step, total_steps):
+    """Runs one ATS adapter over all its configured companies.
+
+    Returns (jobs_collected, fetched_count, relevant_count, rejected_count).
+    """
+    companies = config.COMPANIES.get(config_key, [])
+
+    fetched_total = 0
+    relevant_total = 0
+    rejected_total = 0
+    collected_jobs = []
+
+    log(f"[{step}/{total_steps}] Processing {display_name.title()} APIs ({len(companies)} companies)")
+
+    for company_name, company_id in companies:
+        jobs = collector_fn(company_name, company_id)
+        filtered = [j for j in jobs if filters.is_relevant(j['title'], j['location'])]
+        collected_jobs.extend(filtered)
+
+        fetched = len(jobs)
+        relevant = len(filtered)
+        rejected = fetched - relevant
+
+        fetched_total += fetched
+        relevant_total += relevant
+        rejected_total += rejected
+
+        log(f"[{display_name}] {company_name} -> Found {fetched} (Kept {relevant}, Rejected {rejected})")
+
+    return collected_jobs, fetched_total, relevant_total, rejected_total
+
+
 def run_collection_cycle():
     """Main Orchestration Loop.
 
-    Iterates over Greenhouse, Lever, and Workday APIs, filters jobs for
-    relevance, records diagnostic summary statistics, and saves records.
+    Iterates over every registered ATS adapter, filters jobs for relevance,
+    records diagnostic summary statistics, and saves records.
     """
     cycle_start = time.time()
     log_section("Starting Collection Cycle")
-    
+
     all_jobs = []
+    total_steps = len(ATS_ADAPTERS)
 
-    # --------------------------------------------------------
-    # SECTION 1: GREENHOUSE
-    # --------------------------------------------------------
-    greenhouse_fetched = 0
-    greenhouse_relevant = 0
-    greenhouse_rejected = 0
-    greenhouse_start = time.time()
+    for step, (display_name, config_key, collector_fn) in enumerate(ATS_ADAPTERS, start=1):
+        platform_start = time.time()
 
-    log(f"[1/3] Processing Greenhouse APIs ({len(config.COMPANIES['greenhouse'])} companies)")
+        jobs, fetched, relevant, rejected = run_platform(
+            display_name, config_key, collector_fn, step, total_steps
+        )
+        all_jobs.extend(jobs)
 
-    for company_name, company_id in config.COMPANIES['greenhouse']:
-        jobs = collect_greenhouse(company_name, company_id)
-        filtered = [j for j in jobs if filters.is_relevant(j['title'], j['location'])]
-        all_jobs.extend(filtered)
-
-        fetched = len(jobs)
-        relevant = len(filtered)
-        rejected = fetched - relevant
-
-        greenhouse_fetched += fetched
-        greenhouse_relevant += relevant
-        greenhouse_rejected += rejected
-
-        log(f"[GREENHOUSE] {company_name} -> Found {fetched} (Kept {relevant}, Rejected {rejected})")
-
-    greenhouse_time = time.time() - greenhouse_start
-    log_section("GREENHOUSE CYCLE SUMMARY")
-    log(f"Fetched   : {greenhouse_fetched} jobs")
-    log(f"Relevant  : {greenhouse_relevant} jobs")
-    log(f"Time Taken: {greenhouse_time:.2f} sec")
-
-    # --------------------------------------------------------
-    # SECTION 2: LEVER
-    # --------------------------------------------------------
-    lever_fetched = 0
-    lever_relevant = 0
-    lever_rejected = 0
-    lever_start = time.time()
-
-    log(f"[2/3] Processing Lever APIs ({len(config.COMPANIES['lever'])} companies)")
-
-    for company_name, company_id in config.COMPANIES['lever']:
-        jobs = collect_lever(company_name, company_id)
-        filtered = [j for j in jobs if filters.is_relevant(j['title'], j['location'])]
-        all_jobs.extend(filtered)
-
-        fetched = len(jobs)
-        relevant = len(filtered)
-        rejected = fetched - relevant
-
-        lever_fetched += fetched
-        lever_relevant += relevant
-        lever_rejected += rejected
-
-        log(f"[LEVER] {company_name} -> Found {fetched} (Kept {relevant}, Rejected {rejected})")
-
-    lever_time = time.time() - lever_start
-    log_section("LEVER CYCLE SUMMARY")
-    log(f"Fetched   : {lever_fetched} jobs")
-    log(f"Relevant  : {lever_relevant} jobs")
-    log(f"Time Taken: {lever_time:.2f} sec")
-
-    # --------------------------------------------------------
-    # SECTION 3: WORKDAY
-    # --------------------------------------------------------
-    workday_fetched = 0
-    workday_relevant = 0
-    workday_rejected = 0
-    workday_start = time.time()
-
-    log(f"[3/3] Processing Workday Integrations ({len(config.COMPANIES['workday'])} companies)")
-
-    for company_name, company_url in config.COMPANIES['workday']:
-        jobs = collect_workday(company_name, company_url)
-        filtered = [j for j in jobs if filters.is_relevant(j['title'], j['location'])]
-        all_jobs.extend(filtered)
-
-        fetched = len(jobs)
-        relevant = len(filtered)
-        rejected = fetched - relevant
-
-        workday_fetched += fetched
-        workday_relevant += relevant
-        workday_rejected += rejected
-
-        log(f"[WORKDAY] {company_name} -> Found {fetched} (Kept {relevant}, Rejected {rejected})")
-
-    workday_time = time.time() - workday_start
-    log_section("WORKDAY CYCLE SUMMARY")
-    log(f"Fetched   : {workday_fetched} jobs")
-    log(f"Relevant  : {workday_relevant} jobs")
-    log(f"Time Taken: {workday_time:.2f} sec")
+        platform_time = time.time() - platform_start
+        log_section(f"{display_name} CYCLE SUMMARY")
+        log(f"Fetched   : {fetched} jobs")
+        log(f"Relevant  : {relevant} jobs")
+        log(f"Rejected  : {rejected} jobs")
+        log(f"Time Taken: {platform_time:.2f} sec")
 
     # --------------------------------------------------------
     # PIPELINE INTEGRATION STEP
@@ -157,7 +131,8 @@ def run_collection_cycle():
 if __name__ == "__main__":
     log_section("Job Radar Pipeline Initialization Setup")
 
-    log("Active Ingestion Adapters: Greenhouse, Lever, Workday")
+    active_adapters = ", ".join(name.title() for name, _, _ in ATS_ADAPTERS)
+    log(f"Active Ingestion Adapters: {active_adapters}")
     log(f"Target Database Host: {config.DB_HOST}")
 
     # Ensure Database structures are active
