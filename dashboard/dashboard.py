@@ -44,26 +44,30 @@ def compute_match(job_extracted_skills, user_skills=USER_SKILLS):
         user_skills (list[str]): your skill profile.
 
     Returns:
-        tuple[float, list[str], list[str]]: (match_pct, matched, missing).
+        tuple[float, list[str], list[str], int]:
+        (match_pct, matched, missing, total_required).
         match_pct = % of THIS JOB's identified skills that you already have
         - i.e. how ready you are for this specific posting, not how much of
-        your skill set the job happens to use.
+        your skill set the job happens to use. total_required is the count
+        of skills the job posting was tagged with, for a "5/6 matched"
+        style display.
     """
     if not job_extracted_skills:
-        return 0.0, [], []
+        return 0.0, [], [], 0
 
     job_skills = [s.strip() for s in job_extracted_skills.split(",") if s.strip()]
     if not job_skills:
-        return 0.0, [], []
+        return 0.0, [], [], 0
 
     user_set = set(user_skills)
     job_set = set(job_skills)
 
     matched = sorted(job_set & user_set)
     missing = sorted(job_set - user_set)
-    match_pct = round(len(matched) / len(job_set) * 100, 1)
+    total_required = len(job_set)
+    match_pct = round(len(matched) / total_required * 100, 1)
 
-    return match_pct, matched, missing
+    return match_pct, matched, missing, total_required
 
 def get_db_connection():
     return psycopg2.connect(
@@ -205,24 +209,29 @@ elif view == "📈 Skills":
 
 elif view == "💼 Jobs":
     st.header("💼 Job Listings")
-    
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         company_filter = st.text_input("Company", "")
     with col2:
         location_filter = st.text_input("Location", "")
     with col3:
-        source_filter = st.selectbox("Source", ["All", "greenhouse", "lever", "workday"])
+        source_filter = st.selectbox(
+            "Source",
+            ["All", "greenhouse", "lever", "workday", "smartrecruiters", "workable", "recruitee"]
+        )
     with col4:
         days_filter = st.number_input("Last N days", min_value=1, max_value=30, value=7)
-    
+
+    sort_by = st.selectbox("Sort By", ["Best Match", "Newest"])
+
     query = """
-        SELECT company, title, location, source, posted_date, url
+        SELECT company, title, location, source, posted_date, extracted_skills, url
         FROM jobs
         WHERE posted_date >= CURRENT_DATE - INTERVAL '%s days'
     """
     params = [days_filter]
-    
+
     if company_filter:
         query += " AND company ILIKE %s"
         params.append(f"%{company_filter}%")
@@ -232,21 +241,89 @@ elif view == "💼 Jobs":
     if source_filter != "All":
         query += " AND source = %s"
         params.append(source_filter)
-    
+
     query += " ORDER BY posted_date DESC, first_seen DESC LIMIT 100"
-    
+
     cur.execute(query, params)
     jobs = cur.fetchall()
-    
+
     if jobs:
-        df = pd.DataFrame(jobs, columns=["Company", "Role", "Location", "Source", "Posted", "Apply"])
-        st.dataframe(df, use_container_width=True, height=500)
-        
+        rows = []
+        for company, role, location, source, posted, skills, url in jobs:
+            match_pct, matched, missing, total_required = compute_match(skills)
+            rows.append({
+                "Match %": match_pct,
+                "Company": company,
+                "Role": role,
+                "Location": location,
+                "Source": source,
+                "Posted": posted,
+                "Skills": skills,
+                "Matched": ", ".join(matched),
+                "Missing": ", ".join(missing),
+                "Total Required": total_required,
+                "Apply": url,
+            })
+        df = pd.DataFrame(rows)
+
+        if sort_by == "Best Match":
+            df = df.sort_values("Match %", ascending=False)
+        else:
+            df = df.sort_values("Posted", ascending=False)
+
         st.subheader("📊 Job Stats")
         col1, col2, col3 = st.columns(3)
-        col1.metric("Total Jobs", len(jobs))
+        col1.metric("Total Jobs", len(df))
         col2.metric("Companies", df['Company'].nunique())
         col3.metric("Sources", df['Source'].nunique())
+
+        st.markdown("---")
+
+        def match_badge(pct):
+            if pct >= 80:
+                return f"🟢 {pct:.0f}%"
+            elif pct >= 50:
+                return f"🟡 {pct:.0f}%"
+            else:
+                return f"🔴 {pct:.0f}%"
+
+        for _, row in df.iterrows():
+            badge = match_badge(row["Match %"])
+            matched_count = len(row["Matched"].split(", ")) if row["Matched"] else 0
+
+            summary = (
+                f"**{badge}**  |  **{row['Company']}** — {row['Role']}  "
+                f"({row['Location']}, {row['Source']})"
+            )
+            if row["Total Required"] > 0:
+                summary += f"  •  {matched_count}/{row['Total Required']} skills matched"
+
+            with st.expander(summary):
+                mcol, xcol = st.columns(2)
+
+                with mcol:
+                    st.markdown(f"**Match: {row['Match %']:.0f}%**")
+                    if row["Total Required"] > 0:
+                        st.caption(f"{matched_count} / {row['Total Required']} skills matched")
+                    st.markdown("**Matched skills**")
+                    if row["Matched"]:
+                        for skill in row["Matched"].split(", "):
+                            st.markdown(f"✔ {skill}")
+                    else:
+                        st.caption("None")
+
+                with xcol:
+                    st.markdown("**Missing**")
+                    if row["Missing"]:
+                        for skill in row["Missing"].split(", "):
+                            st.markdown(f"✗ {skill}")
+                    else:
+                        st.caption("None — full match!")
+
+                st.markdown("**Job skills**")
+                st.caption(row["Skills"] if row["Skills"] else "No skills extracted yet")
+
+                st.markdown(f"[🔗 Apply]({row['Apply']})")
     else:
         st.info("No jobs match your filters")
 
