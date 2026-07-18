@@ -27,6 +27,8 @@ SKILLS_TAXONOMY = {
         "Python": ["python"],
         "SQL": ["sql", "postgresql", "mysql", "t-sql", "pl/sql"],
         "C++": ["c++", "cpp"],
+        "JavaScript": ["javascript", "js"],
+        "TypeScript": ["typescript"],
         "R": ["r programming language", "r language"],
         "Scala": ["scala"],
         "Java": ["java"],
@@ -121,6 +123,57 @@ SKILLS_TAXONOMY = {
 # "TensorFlow not required" / "PyTorch is a nice-to-have but not mandatory"
 # type phrasing so a skill mentioned only to be excluded isn't counted as a
 # real requirement.
+import html as html_lib
+
+# Generic words the fallback NER model tends to false-positive on. These
+# aren't skills, just common English words that happen to appear near
+# technical content in job postings.
+FALLBACK_BLOCKLIST = {
+    "engineering", "designing", "design", "code", "coding", "development",
+    "developing", "building", "working", "experience", "team", "role",
+    "looking", "strong", "solid", "using", "skills", "science", "technology",
+    "platform", "product", "project", "projects", "solutions", "systems",
+    "tools", "knowledge", "understanding", "ability", "years", "work",
+}
+
+
+def _clean_text(text):
+    """Strips HTML tags and decodes HTML entities from a title/description.
+
+    Job descriptions (especially from Greenhouse) come back as raw HTML.
+    Without this, stray fragments like "&lt;p&gt;The..." get fed straight
+    into the NLP model and show up as garbage "skills" like "lt;p>The".
+    """
+    if not text:
+        return ""
+    text = html_lib.unescape(text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _is_plausible_fallback_skill(entity_text):
+    """Quality filter for NER-fallback matches outside the fixed taxonomy.
+
+    The fallback model is noisy - it fires on generic English words as
+    often as real skills. Only accept an entity if it looks tool/tech-like:
+    an acronym, contains tech-specific characters, or is multi-word (real
+    skill phrases are rarely single common words).
+    """
+    text = entity_text.strip()
+    if not text or len(text) < 2:
+        return False
+    if text.lower() in FALLBACK_BLOCKLIST:
+        return False
+    # Reject if it's just a single common lowercase word with no tech markers
+    has_tech_chars = bool(re.search(r"[.+#/\d]", text))
+    is_acronym = text.isupper() and 2 <= len(text) <= 6
+    is_multi_word = len(text.split()) > 1
+    if not (has_tech_chars or is_acronym or is_multi_word):
+        return False
+    return True
+
+
 NEGATION_WINDOW_CHARS = 45
 NEGATION_CUES = [
     "not required", "not necessary", "not mandatory", "no experience",
@@ -193,8 +246,13 @@ def extract_skills(text):
     if not text or len(text) < 10:
         return []
 
+    text = _clean_text(text)
+    if len(text) < 10:
+        return []
+
     doc = nlp(text)
-    found = {}  # canonical -> category
+    found = {}          # canonical (as-is) -> category
+    found_lower = set() # lowercased canonical names, for case-insensitive dedup
 
     for match_id, start, end in skill_matcher(doc):
         span = doc[start:end]
@@ -202,14 +260,24 @@ def extract_skills(text):
         if _is_negated(text, span.start_char, span.end_char):
             continue
         found[canonical] = category
+        found_lower.add(canonical.lower())
 
     for ent in doc.ents:
         if "SKILL" in ent.label_:
-            canonical = ent.text.strip()
-            if canonical and canonical not in found:
-                if _is_negated(text, ent.start_char, ent.end_char):
-                    continue
-                found[canonical] = "Other"
+            candidate = ent.text.strip()
+            if not candidate:
+                continue
+            # Already covered by a taxonomy match under any casing/alias -
+            # this is what was causing "Machine Learning" and "machine
+            # learning" to show up as two separate bars.
+            if candidate.lower() in found_lower:
+                continue
+            if not _is_plausible_fallback_skill(candidate):
+                continue
+            if _is_negated(text, ent.start_char, ent.end_char):
+                continue
+            found[candidate] = "Other"
+            found_lower.add(candidate.lower())
 
     return list(found.items())
 
