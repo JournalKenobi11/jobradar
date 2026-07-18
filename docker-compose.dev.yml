@@ -2,9 +2,12 @@ version: "3.8"
 
 services:
   collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
     image: job-collector:latest
     container_name: job_collector
-    restart: always
+    restart: unless-stopped
 
     environment:
       DB_HOST: postgres
@@ -21,9 +24,12 @@ services:
       - homelab
 
   dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
     image: job-dashboard:latest
     container_name: job_dashboard
-    restart: always
+    restart: unless-stopped
 
     ports:
       - "8501:8501"
