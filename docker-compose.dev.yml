@@ -1,52 +1,46 @@
-version: '3.8'
-
-
+version: "3.8"
 
 services:
-
   collector:
-
-    build: ./collector
-
-    container_name: job_collector_dev
+    image: job-collector:latest
+    container_name: job_collector
+    restart: always
 
     environment:
-
-      - DB_HOST=postgres
-
-      - DB_PORT=5432
-
-      - DB_NAME=jobradar_db
-
-      - DB_USER=jobradar
-
-      - DB_PASSWORD=jobradar123
-
-      - SKILL_MODEL_PATH=/app/models/skill-extractor
-
-      - PYTHONUNBUFFERED=1
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: jobradar_db
+      DB_USER: jobradar
+      DB_PASSWORD: jobradar123
 
     volumes:
-
       - ./collector:/app
-
-      - ./models/skill-extractor:/app/models/skill-extractor:ro
+      - ./data:/app/data
 
     networks:
+      - homelab
 
-      - homelab_network
+  dashboard:
+    image: job-dashboard:latest
+    container_name: job_dashboard
+    restart: always
 
-    command: python -u collector.py
+    ports:
+      - "8501:8501"
 
-    stdin_open: true
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: jobradar_db
+      DB_USER: jobradar
+      DB_PASSWORD: jobradar123
 
-    tty: true
+    volumes:
+      - ./dashboard:/app
 
-
+    networks:
+      - homelab
 
 networks:
-
-  homelab_network:
-    name: homelab
-
+  homelab:
     external: true

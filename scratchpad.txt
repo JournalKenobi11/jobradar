@@ -34,3 +34,62 @@ services:
 networks:
   homelab:
     external: true
+
+
+
+
+
+
+og dev config:
+version: '3.8'
+
+
+
+services:
+
+  collector:
+
+    build: ./collector
+
+    container_name: job_collector_dev
+
+    environment:
+
+      - DB_HOST=postgres
+
+      - DB_PORT=5432
+
+      - DB_NAME=jobradar_db
+
+      - DB_USER=jobradar
+
+      - DB_PASSWORD=jobradar123
+
+      - SKILL_MODEL_PATH=/app/models/skill-extractor
+
+      - PYTHONUNBUFFERED=1
+
+    volumes:
+
+      - ./collector:/app
+
+      - ./models/skill-extractor:/app/models/skill-extractor:ro
+
+    networks:
+
+      - homelab_network
+
+    command: python -u collector.py
+
+    stdin_open: true
+
+    tty: true
+
+
+
+networks:
+
+  homelab_network:
+    name: homelab
+
+    external: true
