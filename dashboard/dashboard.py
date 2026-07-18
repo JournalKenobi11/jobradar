@@ -11,6 +11,60 @@ DB_NAME = os.getenv('DB_NAME', 'jobradar_db')
 DB_USER = os.getenv('DB_USER', 'jobradar')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'jobradar123')
 
+# ============================================================
+# YOUR SKILL PROFILE
+# ============================================================
+# Canonical names must match SKILLS_TAXONOMY in nlp_engine.py exactly,
+# since that's what actually gets written to jobs.extracted_skills.
+# If you add a new skill to the taxonomy there, add it here too if it's
+# something you actually know.
+USER_SKILLS = [
+    "Python", "SQL", "C++",
+    "NumPy", "Pandas", "EDA", "Data Preprocessing", "Data Pipelines",
+    "Data Engineering",
+    "PyTorch", "Scikit-learn",
+    "Machine Learning", "Deep Learning", "NLP", "CNN", "RAG",
+    "Time-Series Analysis",
+    "Statistics", "Calculus", "Physics",
+    "Streamlit",
+    "Flask", "FastAPI",
+    "Astropy", "SciPy", "HEASoft", "Astrophysics", "Astronomy",
+    "CPU Architecture", "CPU Microbenchmarking", "Linux Command Line",
+    "Home Server Setup",
+    "Docker", "Git", "Conda", "Poetry",
+]
+
+
+def compute_match(job_extracted_skills, user_skills=USER_SKILLS):
+    """Computes how well a job's identified required skills match yours.
+
+    Args:
+        job_extracted_skills (str | None): comma-separated skill list
+            straight from jobs.extracted_skills.
+        user_skills (list[str]): your skill profile.
+
+    Returns:
+        tuple[float, list[str], list[str]]: (match_pct, matched, missing).
+        match_pct = % of THIS JOB's identified skills that you already have
+        - i.e. how ready you are for this specific posting, not how much of
+        your skill set the job happens to use.
+    """
+    if not job_extracted_skills:
+        return 0.0, [], []
+
+    job_skills = [s.strip() for s in job_extracted_skills.split(",") if s.strip()]
+    if not job_skills:
+        return 0.0, [], []
+
+    user_set = set(user_skills)
+    job_set = set(job_skills)
+
+    matched = sorted(job_set & user_set)
+    missing = sorted(job_set - user_set)
+    match_pct = round(len(matched) / len(job_set) * 100, 1)
+
+    return match_pct, matched, missing
+
 def get_db_connection():
     return psycopg2.connect(
         host=DB_HOST,
