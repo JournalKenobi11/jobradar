@@ -1,0 +1,16 @@
+home:53 {
+    hosts {
+        100.66.54.63 vault.home immich.home portainer.home jobs.home server.home files.home dreeve.home noisefit.home
+        fallthrough
+    }
+    template IN A {
+        match (.*)\.home
+        answer "{{ .Name }} 60 IN A 100.66.54.63"
+    }
+    template IN AAAA {
+        match (.*)\.home
+        rcode NOERROR
+    }
+    log
+    errors
+}

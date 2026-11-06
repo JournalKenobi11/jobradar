@@ -1,0 +1,11 @@
+services:
+  coredns:
+    image: coredns/coredns:latest
+    container_name: homelab_dns
+    restart: unless-stopped
+    command: -conf /etc/coredns/Corefile
+    ports:
+      - "100.66.54.63:53:53/udp"
+      - "100.66.54.63:53:53/tcp"
+    volumes:
+      - ./Corefile:/etc/coredns/Corefile:ro
